@@ -8,6 +8,9 @@ import { Scanner } from "@/components/Scanner";
 
 export const dynamic = "force-dynamic";
 
+/** Слаг теки для документів без адресата — той самий, що віддає document_folders(). */
+const NO_ISSUER = "_none";
+
 interface Params {
   q?: string;
   type?: string;
@@ -33,7 +36,9 @@ export default async function DocumentsPage({
     const { data } = await supabase.rpc("search_documents", { p_query: query });
     documents = (data as Document[]) ?? [];
     if (typeFilter) documents = documents.filter((d) => d.doc_type === typeFilter);
-    if (folderFilter) documents = documents.filter((d) => d.issuer_slug === folderFilter);
+    if (folderFilter) {
+      documents = documents.filter((d) => (d.issuer_slug ?? NO_ISSUER) === folderFilter);
+    }
   } else {
     let select = supabase
       .from("documents")
@@ -43,7 +48,12 @@ export default async function DocumentsPage({
       .limit(200);
 
     if (typeFilter) select = select.eq("doc_type", typeFilter);
-    if (folderFilter) select = select.eq("issuer_slug", folderFilter);
+    if (folderFilter) {
+      select =
+        folderFilter === NO_ISSUER
+          ? select.is("issuer_slug", null)
+          : select.eq("issuer_slug", folderFilter);
+    }
 
     const { data } = await select;
     documents = (data as Document[]) ?? [];

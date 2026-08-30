@@ -9,8 +9,8 @@ export interface Period {
   from: string;
   to: string;
   label: string;
-  /** Кошик для групування в аналітиці. */
-  bucket: "day" | "week" | "month";
+  /** Кошик для групування в аналітиці. Тиждень групується по днях. */
+  bucket: "day" | "month";
 }
 
 /** Понеділок того тижня, до якого належить дата. */

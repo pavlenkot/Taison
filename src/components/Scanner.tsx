@@ -86,12 +86,17 @@ export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
   const [kind, setKind] = useState<Kind>(fixedKind ?? "receipt");
 
   // Об'єктні URL живуть до явного відкликання — прибираємо за собою.
+  // Відкликаємо лише при знятті компонента: залежності від самих адрес
+  // тут не можна, інакше поява .txt відкликала б ще потрібний PDF.
+  const urlsRef = useRef<{ pdf: string | null; meta: string | null }>({ pdf: null, meta: null });
+  urlsRef.current = { pdf: pdfUrl, meta: metaUrl };
+
   useEffect(() => {
     return () => {
-      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-      if (metaUrl) URL.revokeObjectURL(metaUrl);
+      if (urlsRef.current.pdf) URL.revokeObjectURL(urlsRef.current.pdf);
+      if (urlsRef.current.meta) URL.revokeObjectURL(urlsRef.current.meta);
     };
-  }, [pdfUrl, metaUrl]);
+  }, []);
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;

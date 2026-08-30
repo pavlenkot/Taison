@@ -426,6 +426,9 @@ export async function deleteDocument(form: FormData) {
 
   revalidatePath("/documents");
   revalidatePath("/receipts");
+  // Видаляють із картки документа — залишити користувача на ній не можна:
+  // сторінки вже немає, і вона показала б 404.
+  redirect("/documents");
 }
 
 // ------------------------------------------------------------------ інше

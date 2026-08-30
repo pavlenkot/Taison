@@ -135,16 +135,34 @@ export function normalizeDocument(
   };
 }
 
+/** Мінімум полів для супутника: підходить і свіжому розбору, і рядку з бази. */
+export interface SidecarFields {
+  docType: DocType;
+  issuer: string | null;
+  subject: string | null;
+  documentDate: string | null;
+  referenceNumber: string | null;
+  deadline: string | null;
+  amountCents: number | null;
+  keywords: string[];
+  bodyText: string | null;
+  /** Є лише одразу після розбору — у базі стислий зміст не зберігається. */
+  summary?: string;
+}
+
 /**
  * Текстовий супутник до PDF. Швидка команда кладе його поруч у ту саму
  * теку, і тоді пошук iOS та Spotlight знаходить документ за будь-яким
- * словом із нього, не відкриваючи сам PDF.
+ * словом із нього, не відкриваючи сам PDF. Той самий текст віддає
+ * /api/documents/[id]/metadata, тож формат описаний тут один раз.
  */
-export function metadataSidecar(doc: DocumentExtraction): string {
+export function metadataSidecar(doc: SidecarFields): string {
+  const label = DOC_TYPE_LABELS[doc.docType] ?? DOC_TYPE_LABELS.other;
+
   const lines = [
     `Документ: ${doc.subject ?? "без назви"}`,
     `Від кого: ${doc.issuer ?? "не визначено"}`,
-    `Категорія: ${DOC_TYPE_LABELS[doc.docType].title}`,
+    `Категорія: ${label.title}`,
     `Дата документа: ${doc.documentDate ?? "не визначено"}`,
   ];
 
@@ -153,11 +171,8 @@ export function metadataSidecar(doc: DocumentExtraction): string {
   if (doc.amountCents) lines.push(`Сума: ${(doc.amountCents / 100).toFixed(2)} EUR`);
   if (doc.keywords.length > 0) lines.push(`Ключові слова: ${doc.keywords.join(", ")}`);
 
-  lines.push("", "Стислий зміст:", doc.summary || "—");
-
-  if (doc.bodyText) {
-    lines.push("", "Повний текст:", doc.bodyText);
-  }
+  if (doc.summary) lines.push("", "Стислий зміст:", doc.summary);
+  if (doc.bodyText) lines.push("", "Повний текст:", doc.bodyText);
 
   return lines.join("\n");
 }

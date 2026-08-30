@@ -24,6 +24,24 @@ const SOURCE_LABELS: Record<string, string> = {
   subscription: "Підписка",
 };
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Дата з рядка запиту приймається лише у форматі YYYY-MM-DD і лише справжня. */
+function validDate(value: string | null): string | null {
+  if (!value || !ISO_DATE.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) ? null : value;
+}
+
+/**
+ * Excel читає дату як дату лише з об'єкта Date; рядок лишається текстом,
+ * і тоді у виписці не працюють ні сортування, ні фільтр за періодом.
+ * Полудень UTC — щоб зсув поясу в жодному напрямку не переніс день.
+ */
+function excelDate(iso: string): Date {
+  return new Date(`${iso}T12:00:00Z`);
+}
+
 /** Захист від формул: рядок, що починається з =, +, -, @, Excel виконає як формулу. */
 function safeCell(value: string): string {
   return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
@@ -41,15 +59,16 @@ export async function GET(request: NextRequest) {
   const periodKind = (searchParams.get("period") ?? "year") as PeriodKind;
   const offset = Number(searchParams.get("offset") ?? 0) || 0;
 
-  const explicitFrom = searchParams.get("from");
-  const explicitTo = searchParams.get("to");
+  const explicitFrom = validDate(searchParams.get("from"));
+  const explicitTo = validDate(searchParams.get("to"));
 
   const period = ["week", "month", "year"].includes(periodKind)
     ? resolvePeriod(periodKind, offset)
     : resolvePeriod("year", 0);
 
-  const from = explicitFrom ?? period.from;
-  const to = explicitTo ?? period.to;
+  const custom = explicitFrom !== null && explicitTo !== null && explicitFrom <= explicitTo;
+  const from = custom ? explicitFrom : period.from;
+  const to = custom ? explicitTo : period.to;
 
   const { data, error } = await supabase
     .from("transactions")
@@ -126,6 +145,7 @@ export async function GET(request: NextRequest) {
   for (const r of rows) {
     sheet.addRow({
       ...r,
+      date: excelDate(r.date),
       category: safeCell(r.category),
       merchant: safeCell(r.merchant),
       note: safeCell(r.note),

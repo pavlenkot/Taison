@@ -22,7 +22,7 @@ async function fetchTotals(from: string, to: string, bucket: string): Promise<Pe
 }
 
 /** Усі кошики періоду, включно з порожніми — інакше графік бреше про пропуски. */
-function buildBuckets(from: string, to: string, bucket: "day" | "week" | "month"): string[] {
+function buildBuckets(from: string, to: string, bucket: "day" | "month"): string[] {
   const out: string[] = [];
   const cursor = new Date(`${from}T00:00:00`);
   const end = new Date(`${to}T00:00:00`);
@@ -37,7 +37,7 @@ function buildBuckets(from: string, to: string, bucket: "day" | "week" | "month"
           cursor.getDate(),
         ).padStart(2, "0")}`,
       );
-      cursor.setDate(cursor.getDate() + (bucket === "week" ? 7 : 1));
+      cursor.setDate(cursor.getDate() + 1);
     }
   }
   return out;

@@ -31,6 +31,7 @@ export async function runGemini<S extends z.ZodType>(
   user: string,
   data: string,
   mime: string,
+  maxTokens = 8000,
 ): Promise<{ parsed: z.infer<S>; model: string }> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -50,6 +51,7 @@ export async function runGemini<S extends z.ZodType>(
     ],
     config: {
       systemInstruction: system,
+      maxOutputTokens: maxTokens,
       responseMimeType: "application/json",
       responseJsonSchema: toGeminiSchema(schema),
     },

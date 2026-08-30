@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { DOC_TYPE_LABELS, type DocType } from "@/lib/ai/documentSchema";
+import { metadataSidecar, type DocType } from "@/lib/ai/documentSchema";
 import { safeFileName } from "@/lib/slug";
 import type { Document } from "@/lib/types";
 
@@ -27,20 +27,20 @@ export async function GET(
   }
 
   const doc = data as Document;
-  const label = DOC_TYPE_LABELS[(doc.doc_type as DocType) ?? "other"] ?? DOC_TYPE_LABELS.other;
 
-  const lines = [
-    `Документ: ${doc.subject ?? "без назви"}`,
-    `Від кого: ${doc.issuer ?? "не визначено"}`,
-    `Категорія: ${label.title}`,
-    `Дата документа: ${doc.document_date ?? "не визначено"}`,
-  ];
-
-  if (doc.reference_number) lines.push(`Номер справи: ${doc.reference_number}`);
-  if (doc.deadline) lines.push(`Строк: ${doc.deadline}`);
-  if (doc.amount_cents) lines.push(`Сума: ${(doc.amount_cents / 100).toFixed(2)} EUR`);
-  if (doc.keywords.length > 0) lines.push(`Ключові слова: ${doc.keywords.join(", ")}`);
-  if (doc.body_text) lines.push("", "Повний текст:", doc.body_text);
+  // Формат супутника описаний один раз — у metadataSidecar(), щоб текст
+  // із Швидкої команди і текст, завантажений тут, не розходилися.
+  const body = metadataSidecar({
+    docType: (doc.doc_type as DocType) ?? "other",
+    issuer: doc.issuer,
+    subject: doc.subject,
+    documentDate: doc.document_date,
+    referenceNumber: doc.reference_number,
+    deadline: doc.deadline,
+    amountCents: doc.amount_cents,
+    keywords: doc.keywords ?? [],
+    bodyText: doc.body_text,
+  });
 
   const name = safeFileName(
     [doc.document_date ?? "", doc.issuer ?? "", doc.subject ?? ""]
@@ -49,7 +49,7 @@ export async function GET(
     110,
   ) || "Документ";
 
-  return new NextResponse(lines.join("\n"), {
+  return new NextResponse(body, {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`${name}.txt`)}`,

@@ -39,7 +39,7 @@ async function run<S extends z.ZodType>(
   const result =
     provider === "claude"
       ? await runClaude(schema, system, user, base64, mime, maxTokens)
-      : await runGemini(schema, system, user, base64, mime);
+      : await runGemini(schema, system, user, base64, mime, maxTokens);
 
   return { ...result, provider };
 }

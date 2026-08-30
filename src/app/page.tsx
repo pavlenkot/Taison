@@ -31,7 +31,7 @@ export default async function Dashboard() {
     { data: dueRows },
     { data: taskRows },
     { data: recentRows },
-    { data: reviewRows },
+    reviewCount,
   ] = await Promise.all([
     supabase.rpc("period_totals", { p_from: month.from, p_to: month.to, p_bucket: "month" }),
     supabase.rpc("period_totals", {
@@ -60,7 +60,7 @@ export default async function Dashboard() {
       .limit(5),
     supabase
       .from("transactions")
-      .select("id")
+      .select("id", { count: "exact", head: true })
       .eq("needs_review", true),
   ]);
 
@@ -115,7 +115,7 @@ export default async function Dashboard() {
   const due = (dueRows as Subscription[]) ?? [];
   const tasks = (taskRows as Task[]) ?? [];
   const recent = (recentRows as Transaction[]) ?? [];
-  const pendingReview = (reviewRows ?? []).length;
+  const pendingReview = reviewCount.count ?? 0;
 
   return (
     <>

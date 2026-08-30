@@ -536,13 +536,17 @@ returns table (
   last_document date
 )
 language sql stable security invoker set search_path = public as $$
+  -- Слаг '_none' — теки без адресата. Підкреслення на початку slugify()
+  -- ніколи не поверне, тож зіткнутися зі справжнім адресатом не може.
+  -- Групуємо лише за слагом: різні написання однієї установи («Finanzamt»
+  -- і «FINANZAMT») дають один слаг і мають бути однією текою.
   select
-    coalesce(d.issuer_slug, 'inshe')          as issuer_slug,
-    coalesce(nullif(d.issuer, ''), 'Без адресата') as issuer,
-    count(*)::bigint                          as documents,
-    max(d.document_date)                      as last_document
+    coalesce(d.issuer_slug, '_none')                    as issuer_slug,
+    coalesce(max(nullif(d.issuer, '')), 'Без адресата') as issuer,
+    count(*)::bigint                                    as documents,
+    max(d.document_date)                                as last_document
   from public.documents d
   where d.user_id = auth.uid()
-  group by 1, 2
+  group by 1
   order by 3 desc, 2;
 $$;

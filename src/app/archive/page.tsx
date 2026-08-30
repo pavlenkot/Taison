@@ -139,7 +139,7 @@ export default async function ArchivePage({
               ))}
             </ul>
             <p className="mt-3 text-right text-sm text-muted">
-              Разом за показаний період:{" "}
+              Разом за {payments.length} останніх платежів:{" "}
               <strong className="text-ink tabular-nums">{formatMoney(paidTotal)}</strong>
             </p>
           </>

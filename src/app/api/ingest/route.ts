@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { extractReceipt, extractDocument, aiConfigured, activeProvider } from "@/lib/ai";
 import { persistDocument } from "@/lib/saveDocument";
 import { isoDate } from "@/lib/format";
+import { safeFileName } from "@/lib/slug";
 
 export const maxDuration = 120;
 
@@ -202,7 +203,12 @@ export async function POST(request: Request) {
     ok: true,
     kind: "receipt",
     folder: "",
-    filename: `${receipt!.purchasedOn ?? isoDate()} ${receipt!.merchant ?? "Чек"}`,
+    // Через safeFileName: назву магазину читає модель, а вона може
+    // повернути «/» чи «:», які зламали б шлях у кроці «Зберегти файл».
+    filename: safeFileName(
+      `${receipt!.purchasedOn ?? isoDate()} ${receipt!.merchant ?? "Чек"}`,
+      80,
+    ),
     metadata: "",
     message: `${receipt!.merchant ?? "Чек"} · ${euro} € · чекає на перевірку`,
     merchant: receipt!.merchant,

@@ -42,43 +42,6 @@ export const ReceiptExtractionSchema = z.object({
 
 export type ReceiptExtraction = z.infer<typeof ReceiptExtractionSchema>;
 
-/** Той самий контракт у вигляді JSON Schema — для responseJsonSchema у Gemini. */
-export const RECEIPT_JSON_SCHEMA = {
-  type: "object",
-  properties: {
-    document_kind: { type: "string", enum: ["receipt", "document"] },
-    merchant: { type: "string" },
-    purchased_on: { type: "string" },
-    total_cents: { type: "integer" },
-    currency: { type: "string" },
-    category_slug: { type: "string", enum: [...CATEGORY_SLUGS] },
-    confidence: { type: "string", enum: ["high", "medium", "low"] },
-    summary: { type: "string" },
-    line_items: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          total_cents: { type: "integer" },
-        },
-        required: ["name", "total_cents"],
-      },
-    },
-  },
-  required: [
-    "document_kind",
-    "merchant",
-    "purchased_on",
-    "total_cents",
-    "currency",
-    "category_slug",
-    "confidence",
-    "summary",
-    "line_items",
-  ],
-} as const;
-
 /** Результат після нормалізації — те, що бачить решта застосунку. */
 export interface Extraction {
   documentKind: "receipt" | "document";
