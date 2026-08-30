@@ -78,6 +78,17 @@ export default async function ScanPage() {
                     </span>
                   </summary>
 
+                  {t.receipt_id && (
+                    <a
+                      href={`/api/receipt/${t.receipt_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-ghost mb-3 w-full"
+                    >
+                      🧾 Відкрити скан, щоб звірити
+                    </a>
+                  )}
+
                   <form action={updateTransaction} className="border-t border-line pt-4">
                     <input type="hidden" name="id" value={t.id} />
                     <TransactionFields

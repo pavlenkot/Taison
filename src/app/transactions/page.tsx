@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCategories } from "@/lib/data";
 import { formatSigned, formatDate, formatMoney, centsToInput } from "@/lib/format";
@@ -6,75 +7,200 @@ import type { Transaction } from "@/lib/types";
 import { PageHeader, AddPanel, Empty } from "@/components/ui";
 import { TransactionFields } from "@/components/TransactionFields";
 import { addTransaction, updateTransaction, deleteTransaction } from "../actions";
-import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
 const KINDS: PeriodKind[] = ["week", "month", "year"];
 
+/**
+ * У фільтрі .or() кома, дужки й відсоток мають службове значення —
+ * прибираємо їх, щоб пошук за «(20%)» не ламав запит.
+ */
+function sanitise(term: string): string {
+  return term.replace(/[,()%*\\]/g, " ").trim().slice(0, 60);
+}
+
+interface Params {
+  q?: string;
+  category?: string;
+  kind?: string;
+  period?: string;
+  offset?: string;
+  from?: string;
+  to?: string;
+}
+
 export default async function TransactionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; offset?: string }>;
+  searchParams: Promise<Params>;
 }) {
   const params = await searchParams;
-  const kind = (KINDS.includes(params.period as PeriodKind) ? params.period : "month") as PeriodKind;
+
+  const periodKind = (
+    KINDS.includes(params.period as PeriodKind) ? params.period : "month"
+  ) as PeriodKind;
   const offset = Number(params.offset ?? 0) || 0;
-  const period = resolvePeriod(kind, offset);
+  const preset = resolvePeriod(periodKind, offset);
+
+  const custom = Boolean(params.from && params.to);
+  const from = custom ? params.from! : preset.from;
+  const to = custom ? params.to! : preset.to;
+
+  const search = sanitise(params.q ?? "");
+  const categoryId = params.category ?? "";
+  const kindFilter = params.kind === "expense" || params.kind === "income" ? params.kind : "";
 
   const supabase = await createClient();
-  const [{ data }, categories] = await Promise.all([
-    supabase
-      .from("transactions")
-      .select("*, categories (name, icon, slug)")
-      .gte("occurred_on", period.from)
-      .lte("occurred_on", period.to)
-      .order("occurred_on", { ascending: false })
-      .order("created_at", { ascending: false }),
-    getCategories(),
-  ]);
+
+  let query = supabase
+    .from("transactions")
+    .select("*, categories (name, icon, slug)")
+    .gte("occurred_on", from)
+    .lte("occurred_on", to)
+    .order("occurred_on", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (search.length > 0) {
+    query = query.or(`merchant.ilike.%${search}%,note.ilike.%${search}%`);
+  }
+  if (categoryId) query = query.eq("category_id", categoryId);
+  if (kindFilter) query = query.eq("kind", kindFilter);
+
+  const [{ data }, categories] = await Promise.all([query, getCategories()]);
 
   const rows = (data as Transaction[]) ?? [];
   const income = rows.filter((r) => r.kind === "income").reduce((s, r) => s + r.amount_cents, 0);
   const expense = rows.filter((r) => r.kind === "expense").reduce((s, r) => s + r.amount_cents, 0);
 
+  const filtered = search.length > 0 || categoryId !== "" || kindFilter !== "";
+  const title = custom ? `${formatDate(from)} — ${formatDate(to)}` : preset.label;
+
   return (
     <>
-      <PageHeader title="Операції" subtitle={`${period.label} · ${rows.length} записів`} />
-
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {KINDS.map((k) => (
-          <Link
-            key={k}
-            href={`/transactions?period=${k}`}
-            className={`chip ${k === kind ? "border-accent bg-accent/10 text-accent" : "text-muted"}`}
+      <PageHeader
+        title="Операції"
+        subtitle={`${title} · ${rows.length} записів`}
+        action={
+          <a
+            href={`/api/export?format=xlsx&from=${from}&to=${to}`}
+            className="btn-ghost py-2 text-xs"
           >
-            {k === "week" ? "Тиждень" : k === "month" ? "Місяць" : "Рік"}
-          </Link>
-        ))}
-        <span className="ml-auto flex items-center gap-2">
-          <Link href={`/transactions?period=${kind}&offset=${offset - 1}`} className="chip">
-            ←
-          </Link>
-          {offset !== 0 && (
-            <Link href={`/transactions?period=${kind}`} className="chip">
-              Зараз
+            Експорт
+          </a>
+        }
+      />
+
+      {!custom && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          {KINDS.map((k) => (
+            <Link
+              key={k}
+              href={`/transactions?period=${k}`}
+              className={`chip ${k === periodKind ? "border-accent bg-accent/10 text-accent" : "text-muted"}`}
+            >
+              {k === "week" ? "Тиждень" : k === "month" ? "Місяць" : "Рік"}
             </Link>
-          )}
-          {offset < 0 && (
-            <Link href={`/transactions?period=${kind}&offset=${offset + 1}`} className="chip">
-              →
+          ))}
+          <span className="ml-auto flex items-center gap-2">
+            <Link href={`/transactions?period=${periodKind}&offset=${offset - 1}`} className="chip">
+              ←
             </Link>
-          )}
-        </span>
-      </div>
+            {offset !== 0 && (
+              <Link href={`/transactions?period=${periodKind}`} className="chip">
+                Зараз
+              </Link>
+            )}
+            {offset < 0 && (
+              <Link
+                href={`/transactions?period=${periodKind}&offset=${offset + 1}`}
+                className="chip"
+              >
+                →
+              </Link>
+            )}
+          </span>
+        </div>
+      )}
+
+      <details open={filtered || custom} className="card mb-4 [&[open]>summary]:mb-4">
+        <summary className="cursor-pointer list-none text-sm font-semibold text-accent marker:content-none">
+          Пошук і фільтри{filtered ? " · увімкнено" : ""}
+        </summary>
+
+        <form method="get" className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className="label" htmlFor="q">
+              Пошук за магазином і нотаткою
+            </label>
+            <input
+              id="q"
+              name="q"
+              defaultValue={params.q ?? ""}
+              placeholder="Наприклад, ALDI"
+              className="field"
+            />
+          </div>
+
+          <div>
+            <label className="label" htmlFor="category">
+              Категорія
+            </label>
+            <select id="category" name="category" defaultValue={categoryId} className="field">
+              <option value="">Усі категорії</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.icon} {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="label" htmlFor="kind">
+              Тип
+            </label>
+            <select id="kind" name="kind" defaultValue={kindFilter} className="field">
+              <option value="">Витрати й доходи</option>
+              <option value="expense">Лише витрати</option>
+              <option value="income">Лише доходи</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="label" htmlFor="from">
+              Від
+            </label>
+            <input id="from" name="from" type="date" defaultValue={custom ? from : ""} className="field" />
+          </div>
+
+          <div>
+            <label className="label" htmlFor="to">
+              До
+            </label>
+            <input id="to" name="to" type="date" defaultValue={custom ? to : ""} className="field" />
+          </div>
+
+          <div className="flex gap-2 sm:col-span-2">
+            <button type="submit" className="btn-primary">
+              Застосувати
+            </button>
+            <Link href="/transactions" className="btn-ghost">
+              Скинути
+            </Link>
+          </div>
+
+          <p className="text-xs text-muted sm:col-span-2">
+            Задайте «Від» і «До» разом, щоб узяти довільний проміжок — кнопка
+            «Експорт» вивантажить саме його.
+          </p>
+        </form>
+      </details>
 
       <div className="mb-4 grid grid-cols-3 gap-2">
         <div className="card">
           <div className="text-xs text-muted">Витрати</div>
-          <div className="mt-0.5 font-bold tabular-nums text-negative">
-            {formatMoney(expense)}
-          </div>
+          <div className="mt-0.5 font-bold tabular-nums text-negative">{formatMoney(expense)}</div>
         </div>
         <div className="card">
           <div className="text-xs text-muted">Доходи</div>
@@ -102,7 +228,10 @@ export default async function TransactionsPage({
       </AddPanel>
 
       {rows.length === 0 ? (
-        <Empty icon="🧾" text="За цей період операцій немає" />
+        <Empty
+          icon="🧾"
+          text={filtered ? "За такими умовами нічого не знайшлося" : "За цей період операцій немає"}
+        />
       ) : (
         <ul className="space-y-2">
           {rows.map((t) => (
@@ -133,6 +262,17 @@ export default async function TransactionsPage({
                     {formatSigned(t.amount_cents, t.kind)}
                   </span>
                 </summary>
+
+                {t.receipt_id && (
+                  <a
+                    href={`/api/receipt/${t.receipt_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-ghost mb-3 w-full"
+                  >
+                    🧾 Подивитися скан чека
+                  </a>
+                )}
 
                 <form action={updateTransaction} className="border-t border-line pt-4">
                   <input type="hidden" name="id" value={t.id} />

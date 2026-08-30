@@ -1,11 +1,20 @@
 import { createClient } from "./supabase/server";
 import type { Category } from "./types";
 
-export async function getCategories(): Promise<Category[]> {
+/**
+ * @param includeHidden true — для екрана керування категоріями,
+ *   де приховані теж треба показати.
+ */
+export async function getCategories(includeHidden = false): Promise<Category[]> {
   const supabase = await createClient();
-  const { data } = await supabase
+  let query = supabase
     .from("categories")
-    .select("id, name, slug, icon, kind, sort")
-    .order("sort");
+    .select("id, name, slug, icon, kind, sort, hidden")
+    .order("sort")
+    .order("name");
+
+  if (!includeHidden) query = query.eq("hidden", false);
+
+  const { data } = await query;
   return (data as Category[]) ?? [];
 }

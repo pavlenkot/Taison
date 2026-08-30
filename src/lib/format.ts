@@ -1,14 +1,18 @@
 const LOCALE = "uk-UA";
 
+// currencyDisplay: "narrowSymbol" — інакше українська локаль друкує «501,10 EUR»
+// замість «501,10 €»: для неї євро чужа валюта, і CLDR за замовчуванням дає код.
 const money = new Intl.NumberFormat(LOCALE, {
   style: "currency",
   currency: "EUR",
+  currencyDisplay: "narrowSymbol",
   minimumFractionDigits: 2,
 });
 
 const moneyCompact = new Intl.NumberFormat(LOCALE, {
   style: "currency",
   currency: "EUR",
+  currencyDisplay: "narrowSymbol",
   maximumFractionDigits: 0,
 });
 

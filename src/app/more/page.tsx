@@ -22,6 +22,24 @@ export default async function MorePage() {
         />
         <SectionLink href="/goals" icon="◈" title="Цілі" description="Прогрес і поповнення" />
         <SectionLink
+          href="/digest"
+          icon="🗒"
+          title="Підсумок"
+          description="Куди пішли гроші за тиждень і місяць"
+        />
+        <SectionLink
+          href="/receipts"
+          icon="🗂"
+          title="Скани"
+          description="Усі чеки та документи"
+        />
+        <SectionLink
+          href="/categories"
+          icon="◇"
+          title="Категорії"
+          description="Свої назви, значки та порядок"
+        />
+        <SectionLink
           href="/analytics"
           icon="▤"
           title="Аналітика"

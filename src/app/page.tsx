@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { formatMoney, formatSigned, formatDate, describeDueDate, isoDate } from "@/lib/format";
-import { resolvePeriod } from "@/lib/periods";
+import { resolvePeriod, type PeriodKind } from "@/lib/periods";
 import type { Subscription, Task, Transaction, PeriodTotal } from "@/lib/types";
 import { Stat, Empty } from "@/components/ui";
 import { completeTask, paySubscription } from "./actions";
@@ -73,6 +73,45 @@ export default async function Dashboard() {
   const delta =
     prevExpense > 0 ? Math.round(((expense - prevExpense) / prevExpense) * 100) : null;
 
+  // Підсумок за щойно завершений період: спершу місяць, потім тиждень.
+  // Показуємо лише те, що не позначено прочитаним і в чому взагалі є витрати.
+  const lastMonth = resolvePeriod("month", -1);
+  const lastWeek = resolvePeriod("week", -1);
+
+  const [{ data: seenRows }, monthCount, weekCount] = await Promise.all([
+    supabase
+      .from("digest_views")
+      .select("period_kind, period_start")
+      .in("period_start", [lastMonth.from, lastWeek.from]),
+    supabase
+      .from("transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("kind", "expense")
+      .eq("needs_review", false)
+      .gte("occurred_on", lastMonth.from)
+      .lte("occurred_on", lastMonth.to),
+    supabase
+      .from("transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("kind", "expense")
+      .eq("needs_review", false)
+      .gte("occurred_on", lastWeek.from)
+      .lte("occurred_on", lastWeek.to),
+  ]);
+
+  const seen = new Set(
+    ((seenRows as { period_kind: string; period_start: string }[]) ?? []).map(
+      (row) => `${row.period_kind}:${row.period_start}`,
+    ),
+  );
+
+  const pendingDigest: { kind: PeriodKind; label: string } | null =
+    !seen.has(`month:${lastMonth.from}`) && (monthCount.count ?? 0) > 0
+      ? { kind: "month", label: lastMonth.label }
+      : !seen.has(`week:${lastWeek.from}`) && (weekCount.count ?? 0) > 0
+        ? { kind: "week", label: lastWeek.label }
+        : null;
+
   const due = (dueRows as Subscription[]) ?? [];
   const tasks = (taskRows as Task[]) ?? [];
   const recent = (recentRows as Transaction[]) ?? [];
@@ -84,6 +123,24 @@ export default async function Dashboard() {
         <h1 className="text-2xl font-bold tracking-tight">{greeting()}</h1>
         <p className="mt-0.5 text-sm text-muted">{month.label}</p>
       </header>
+
+      {pendingDigest && (
+        <Link
+          href={`/digest?period=${pendingDigest.kind}`}
+          className="card mb-4 flex items-center gap-3 border-accent/40 bg-accent/5"
+        >
+          <span className="text-xl">🗒️</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold">
+              Підсумок за {pendingDigest.label.toLowerCase()} готовий
+            </span>
+            <span className="block text-xs text-muted">
+              Куди пішли гроші, найбільші покупки й непомітні дрібниці
+            </span>
+          </span>
+          <span className="text-muted">›</span>
+        </Link>
+      )}
 
       {pendingReview > 0 && (
         <Link

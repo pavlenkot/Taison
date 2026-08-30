@@ -10,6 +10,7 @@ export interface Category {
   icon: string | null;
   kind: Kind;
   sort: number;
+  hidden: boolean;
 }
 
 export interface Transaction {

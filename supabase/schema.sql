@@ -17,9 +17,13 @@ create table if not exists public.categories (
   icon        text,
   kind        text not null default 'expense' check (kind in ('expense', 'income')),
   sort        integer not null default 100,
+  hidden      boolean not null default false,
   created_at  timestamptz not null default now(),
   unique (user_id, slug)
 );
+
+-- Для тих, хто вже виконував цю схему раніше
+alter table public.categories add column if not exists hidden boolean not null default false;
 
 -- ---------------------------------------------------------------------
 -- Скани: чеки та документи
@@ -146,6 +150,17 @@ create index if not exists tasks_active_idx
   on public.tasks (user_id, archived_at) where archived_at is null;
 
 -- ---------------------------------------------------------------------
+-- Переглянуті підсумки за період
+-- ---------------------------------------------------------------------
+create table if not exists public.digest_views (
+  user_id       uuid not null references auth.users (id) on delete cascade,
+  period_kind   text not null check (period_kind in ('week', 'month')),
+  period_start  date not null,
+  seen_at       timestamptz not null default now(),
+  primary key (user_id, period_kind, period_start)
+);
+
+-- ---------------------------------------------------------------------
 -- Row Level Security: кожен бачить тільки своє
 -- ---------------------------------------------------------------------
 do $$
@@ -153,7 +168,8 @@ declare t text;
 begin
   foreach t in array array[
     'categories', 'receipts', 'transactions', 'subscriptions',
-    'subscription_payments', 'goals', 'goal_contributions', 'tasks'
+    'subscription_payments', 'goals', 'goal_contributions', 'tasks',
+    'digest_views'
   ] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "own rows" on public.%I', t);

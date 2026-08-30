@@ -263,7 +263,128 @@ export async function deleteTask(form: FormData) {
   revalidatePath("/");
 }
 
+// ------------------------------------------------------------ категорії
+
+/** Транслітерація для читабельного слага; сам слаг користувач ніде не бачить. */
+const TRANSLIT: Record<string, string> = {
+  а: "a", б: "b", в: "v", г: "h", ґ: "g", д: "d", е: "e", є: "ie", ж: "zh",
+  з: "z", и: "y", і: "i", ї: "i", й: "i", к: "k", л: "l", м: "m", н: "n",
+  о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "kh", ц: "ts",
+  ч: "ch", ш: "sh", щ: "shch", ь: "", ю: "iu", я: "ia", ы: "y", э: "e", ъ: "",
+};
+
+function slugify(name: string): string {
+  const base = name
+    .toLowerCase()
+    .split("")
+    .map((char) => TRANSLIT[char] ?? char)
+    .join("")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 40);
+
+  return base.length > 0 ? base : `cat_${Date.now().toString(36)}`;
+}
+
+export async function addCategory(form: FormData) {
+  const { supabase, userId } = await client();
+
+  const name = str(form, "name");
+  if (name.length === 0) throw new Error("Вкажіть назву категорії");
+
+  const kind = str(form, "kind") === "income" ? "income" : "expense";
+  const base = slugify(name);
+
+  // Слаг має бути унікальним у межах користувача — підбираємо вільний.
+  const { data: taken } = await supabase
+    .from("categories")
+    .select("slug")
+    .like("slug", `${base}%`);
+
+  const used = new Set((taken ?? []).map((row: { slug: string }) => row.slug));
+  let slug = base;
+  let attempt = 2;
+  while (used.has(slug)) {
+    slug = `${base}_${attempt}`;
+    attempt += 1;
+  }
+
+  const { error } = await supabase.from("categories").insert({
+    user_id: userId,
+    name,
+    slug,
+    kind,
+    icon: optional(form, "icon") ?? "📦",
+    sort: Number(str(form, "sort")) || 500,
+  });
+  fail("Не вдалося створити категорію", error);
+
+  revalidatePath("/categories");
+  revalidatePath("/transactions");
+}
+
+export async function updateCategory(form: FormData) {
+  const { supabase } = await client();
+
+  const { error } = await supabase
+    .from("categories")
+    .update({
+      name: str(form, "name"),
+      icon: optional(form, "icon") ?? "📦",
+      sort: Number(str(form, "sort")) || 500,
+      hidden: form.get("hidden") === "on",
+    })
+    .eq("id", str(form, "id"));
+  fail("Не вдалося оновити категорію", error);
+
+  revalidatePath("/categories");
+  revalidatePath("/transactions");
+}
+
+/** Перемикач видимості окремою дією — щоб ховати в один дотик зі списку. */
+export async function toggleCategoryHidden(form: FormData) {
+  const { supabase } = await client();
+
+  const { error } = await supabase
+    .from("categories")
+    .update({ hidden: str(form, "hidden") !== "true" })
+    .eq("id", str(form, "id"));
+  fail("Не вдалося змінити категорію", error);
+
+  revalidatePath("/categories");
+  revalidatePath("/transactions");
+}
+
+export async function deleteCategory(form: FormData) {
+  const { supabase } = await client();
+  const { error } = await supabase.from("categories").delete().eq("id", str(form, "id"));
+  fail("Не вдалося видалити категорію", error);
+
+  revalidatePath("/categories");
+  revalidatePath("/transactions");
+}
+
+// -------------------------------------------------------------- підсумки
+
+export async function markDigestSeen(form: FormData) {
+  const { supabase, userId } = await client();
+
+  const { error } = await supabase.from("digest_views").upsert(
+    {
+      user_id: userId,
+      period_kind: str(form, "period_kind"),
+      period_start: str(form, "period_start"),
+    },
+    { onConflict: "user_id,period_kind,period_start" },
+  );
+  fail("Не вдалося позначити підсумок прочитаним", error);
+
+  revalidatePath("/");
+  revalidatePath("/digest");
+}
+
 // ------------------------------------------------------------------ інше
+
 
 export async function signOut() {
   const supabase = await createClient();
