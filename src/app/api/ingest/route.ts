@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { extractReceipt, aiConfigured, activeProvider } from "@/lib/ai";
+import { extractReceipt, extractDocument, aiConfigured, activeProvider } from "@/lib/ai";
+import { persistDocument } from "@/lib/saveDocument";
 import { isoDate } from "@/lib/format";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 /** Порівняння без ранньої зупинки — щоб час відповіді не підказував правильний префікс. */
 function safeEqual(a: string, b: string): boolean {
@@ -17,6 +18,10 @@ function safeEqual(a: string, b: string): boolean {
  * Приймає скан від Швидкої команди iOS.
  * Сесії тут немає, тож автентифікація — за спільним токеном у заголовку,
  * а користувач визначається змінною INGEST_OWNER_EMAIL.
+ *
+ * Для документа у відповіді приходить план розкладки: тека адресата,
+ * підписане ім'я файлу і текст супутника. Швидка команда зберігає файли
+ * уже за цим планом, тому теки на кшталт «Finanzamt» створюються самі.
  */
 export async function POST(request: Request) {
   const expected = process.env.INGEST_TOKEN;
@@ -44,6 +49,7 @@ export async function POST(request: Request) {
   const form = await request.formData();
   const file = form.get("file");
   const icloudPath = form.get("icloud_path");
+  const declaredKind = form.get("kind");
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Бракує файлу у полі file" }, { status: 400 });
@@ -71,6 +77,32 @@ export async function POST(request: Request) {
 
   const bytes = Buffer.from(await file.arrayBuffer());
   const mime = file.type || "image/jpeg";
+  const base64 = bytes.toString("base64");
+
+  const wantsDocument = declaredKind === "document";
+
+  let receipt = null;
+  if (!wantsDocument) {
+    try {
+      receipt = await extractReceipt(base64, mime);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Невідома помилка";
+      return NextResponse.json({ error: `Не вдалося розпізнати: ${message}` }, { status: 502 });
+    }
+  }
+
+  const asDocument = wantsDocument || receipt?.documentKind === "document";
+
+  let document = null;
+  if (asDocument) {
+    try {
+      document = await extractDocument(base64, mime);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Невідома помилка";
+      return NextResponse.json({ error: `Не вдалося розпізнати: ${message}` }, { status: 502 });
+    }
+  }
+
   const extension = mime === "application/pdf" ? "pdf" : mime.split("/")[1] || "jpg";
   const storagePath = `${owner.id}/${crypto.randomUUID()}.${extension}`;
 
@@ -82,27 +114,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: uploadError.message }, { status: 500 });
   }
 
-  let extraction;
-  try {
-    extraction = await extractReceipt(bytes.toString("base64"), mime);
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Невідома помилка";
-    return NextResponse.json({ error: `Не вдалося розпізнати: ${message}` }, { status: 502 });
-  }
-
-  const { data: receipt, error: receiptError } = await supabase
+  const { data: stored, error: receiptError } = await supabase
     .from("receipts")
     .insert({
       user_id: owner.id,
-      kind: extraction.documentKind,
+      kind: asDocument ? "document" : "receipt",
       storage_path: storagePath,
       original_name: file.name,
       mime,
       byte_size: bytes.byteLength,
       icloud_path: typeof icloudPath === "string" ? icloudPath : null,
-      ai_provider: extraction.provider,
-      ai_model: extraction.model,
-      ai_raw: extraction.raw as object,
+      ai_provider: document?.provider ?? receipt?.provider ?? null,
+      ai_model: document?.model ?? receipt?.model ?? null,
+      ai_raw: (document?.raw ?? receipt?.raw ?? null) as object,
     })
     .select("id")
     .single();
@@ -111,37 +135,60 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: receiptError.message }, { status: 500 });
   }
 
-  if (extraction.documentKind === "document") {
-    return NextResponse.json({
-      ok: true,
-      kind: "document",
-      message: extraction.summary || "Документ збережено",
-    });
+  if (document) {
+    try {
+      const { filing } = await persistDocument(
+        supabase,
+        owner.id,
+        stored.id,
+        document,
+        typeof icloudPath === "string" ? icloudPath : null,
+      );
+
+      return NextResponse.json({
+        ok: true,
+        kind: "document",
+        // Швидка команда читає саме ці три поля
+        folder: filing.folder,
+        filename: filing.filename,
+        metadata: filing.metadata,
+        message:
+          `${document.issuer ?? "Документ"} · ${document.subject ?? "збережено"}` +
+          (document.deadline ? ` · строк до ${document.deadline}` : ""),
+        issuer: document.issuer,
+        subject: document.subject,
+        deadline: document.deadline,
+        referenceNumber: document.referenceNumber,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Невідома помилка";
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
   }
 
   const { data: category } = await supabase
     .from("categories")
     .select("id")
     .eq("user_id", owner.id)
-    .eq("slug", extraction.categorySlug)
+    .eq("slug", receipt!.categorySlug)
     .eq("kind", "expense")
     .maybeSingle();
 
   const { error: txError } = await supabase.from("transactions").insert({
     user_id: owner.id,
     kind: "expense",
-    amount_cents: extraction.totalCents ?? 1,
-    currency: extraction.currency,
+    amount_cents: receipt!.totalCents ?? 1,
+    currency: receipt!.currency,
     category_id: category?.id ?? null,
-    merchant: extraction.merchant,
+    merchant: receipt!.merchant,
     note:
-      extraction.lineItems
+      receipt!.lineItems
         .slice(0, 5)
         .map((i) => i.name)
         .join(", ") || null,
-    occurred_on: extraction.purchasedOn ?? isoDate(),
+    occurred_on: receipt!.purchasedOn ?? isoDate(),
     source: "shortcut",
-    receipt_id: receipt.id,
+    receipt_id: stored.id,
     needs_review: true,
   });
 
@@ -149,14 +196,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: txError.message }, { status: 500 });
   }
 
-  const euro = extraction.totalCents ? (extraction.totalCents / 100).toFixed(2) : "?";
+  const euro = receipt!.totalCents ? (receipt!.totalCents / 100).toFixed(2) : "?";
 
   return NextResponse.json({
     ok: true,
     kind: "receipt",
-    message: `${extraction.merchant ?? "Чек"} · ${euro} € · чекає на перевірку`,
-    merchant: extraction.merchant,
-    totalCents: extraction.totalCents,
-    confidence: extraction.confidence,
+    folder: "",
+    filename: `${receipt!.purchasedOn ?? isoDate()} ${receipt!.merchant ?? "Чек"}`,
+    metadata: "",
+    message: `${receipt!.merchant ?? "Чек"} · ${euro} € · чекає на перевірку`,
+    merchant: receipt!.merchant,
+    totalCents: receipt!.totalCents,
+    confidence: receipt!.confidence,
   });
 }

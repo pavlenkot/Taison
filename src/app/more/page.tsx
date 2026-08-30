@@ -15,6 +15,18 @@ export default async function MorePage() {
 
       <div className="space-y-2">
         <SectionLink
+          href="/subscriptions"
+          icon="↻"
+          title="Підписки та платежі"
+          description="Строки оплати й регулярні витрати"
+        />
+        <SectionLink
+          href="/documents"
+          icon="📄"
+          title="Документи"
+          description="Пошук, теки адресатів, строки"
+        />
+        <SectionLink
           href="/tasks"
           icon="✓"
           title="Щоденні завдання"
@@ -30,8 +42,8 @@ export default async function MorePage() {
         <SectionLink
           href="/receipts"
           icon="🗂"
-          title="Скани"
-          description="Усі чеки та документи"
+          title="Усі скани"
+          description="Файли чеків і документів як є"
         />
         <SectionLink
           href="/categories"

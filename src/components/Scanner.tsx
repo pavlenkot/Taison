@@ -1,18 +1,29 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 type Phase = "idle" | "preparing" | "uploading" | "recognising" | "done" | "error";
+type Kind = "receipt" | "document";
+
+interface Filing {
+  folder: string;
+  filename: string;
+  metadata: string;
+}
 
 interface Result {
-  documentKind: "receipt" | "document";
+  documentKind: Kind;
   merchant?: string | null;
   totalCents?: number | null;
   confidence?: string;
+  issuer?: string | null;
+  subject?: string | null;
+  referenceNumber?: string | null;
+  deadline?: string | null;
   summary?: string;
-  provider?: string;
+  filing?: Filing;
 }
 
 const PHASE_TEXT: Record<Phase, string> = {
@@ -25,7 +36,7 @@ const PHASE_TEXT: Record<Phase, string> = {
 };
 
 /** Зменшує знімок до 1600 px по довгій стороні: менше трафіку і дешевший розбір. */
-async function downscale(file: File, maxEdge = 1600): Promise<{ blob: Blob; dataUrl: string }> {
+async function downscale(file: File, maxEdge = 1600): Promise<{ dataUrl: string }> {
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
   const width = Math.round(bitmap.width * scale);
@@ -39,12 +50,7 @@ async function downscale(file: File, maxEdge = 1600): Promise<{ blob: Blob; data
   ctx.drawImage(bitmap, 0, 0, width, height);
   bitmap.close?.();
 
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-  const blob = await new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Не вдалося стиснути"))), "image/jpeg", 0.85),
-  );
-
-  return { blob, dataUrl };
+  return { dataUrl: canvas.toDataURL("image/jpeg", 0.85) };
 }
 
 async function buildPdf(pages: string[]): Promise<Blob> {
@@ -69,14 +75,23 @@ async function buildPdf(pages: string[]): Promise<Blob> {
   return doc.output("blob");
 }
 
-export function Scanner() {
+export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState("");
   const [result, setResult] = useState<Result | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [kind, setKind] = useState<"receipt" | "document">("receipt");
+  const [metaUrl, setMetaUrl] = useState<string | null>(null);
+  const [kind, setKind] = useState<Kind>(fixedKind ?? "receipt");
+
+  // Об'єктні URL живуть до явного відкликання — прибираємо за собою.
+  useEffect(() => {
+    return () => {
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+      if (metaUrl) URL.revokeObjectURL(metaUrl);
+    };
+  }, [pdfUrl, metaUrl]);
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -84,7 +99,9 @@ export function Scanner() {
     setError("");
     setResult(null);
     if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    if (metaUrl) URL.revokeObjectURL(metaUrl);
     setPdfUrl(null);
+    setMetaUrl(null);
 
     try {
       setPhase("preparing");
@@ -104,7 +121,6 @@ export function Scanner() {
         .upload(storagePath, pdf, { contentType: "application/pdf" });
       if (uploadError) throw new Error(uploadError.message);
 
-      // PDF лишається доступним для збереження у Файли → iCloud Drive
       setPdfUrl(URL.createObjectURL(pdf));
 
       setPhase("recognising");
@@ -122,10 +138,16 @@ export function Scanner() {
         }),
       });
 
-      const payload = await response.json();
+      const payload = (await response.json()) as Result & { error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Помилка розпізнавання");
 
-      setResult(payload as Result);
+      if (payload.filing?.metadata) {
+        setMetaUrl(
+          URL.createObjectURL(new Blob([payload.filing.metadata], { type: "text/plain" })),
+        );
+      }
+
+      setResult(payload);
       setPhase("done");
       router.refresh();
     } catch (e) {
@@ -137,21 +159,25 @@ export function Scanner() {
   }
 
   const busy = phase === "preparing" || phase === "uploading" || phase === "recognising";
+  const documentMode = kind === "document";
+  const downloadBase = result?.filing?.filename || `skan-${new Date().toISOString().slice(0, 10)}`;
 
   return (
     <div className="card">
-      <div className="mb-3 flex gap-2">
-        {(["receipt", "document"] as const).map((k) => (
-          <button
-            key={k}
-            type="button"
-            onClick={() => setKind(k)}
-            className={`chip ${k === kind ? "border-accent bg-accent/10 text-accent" : "text-muted"}`}
-          >
-            {k === "receipt" ? "Чек" : "Документ"}
-          </button>
-        ))}
-      </div>
+      {!fixedKind && (
+        <div className="mb-3 flex gap-2">
+          {(["receipt", "document"] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setKind(k)}
+              className={`chip ${k === kind ? "border-accent bg-accent/10 text-accent" : "text-muted"}`}
+            >
+              {k === "receipt" ? "Чек" : "Документ"}
+            </button>
+          ))}
+        </div>
+      )}
 
       <input
         ref={inputRef}
@@ -169,7 +195,11 @@ export function Scanner() {
         onClick={() => inputRef.current?.click()}
         className="btn-primary w-full py-4 text-base"
       >
-        {busy ? PHASE_TEXT[phase] : kind === "receipt" ? "Сфотографувати чек" : "Сфотографувати документ"}
+        {busy
+          ? PHASE_TEXT[phase]
+          : documentMode
+            ? "Сфотографувати документ"
+            : "Сфотографувати чек"}
       </button>
 
       <p className="mt-2 text-center text-xs text-muted">
@@ -186,8 +216,21 @@ export function Scanner() {
         <div className="mt-3 rounded-xl border border-positive/40 bg-positive/5 p-3 text-sm">
           {result.documentKind === "document" ? (
             <>
-              <div className="font-semibold text-positive">Документ збережено</div>
-              <div className="mt-0.5 text-muted">{result.summary || "Без опису"}</div>
+              <div className="font-semibold text-positive">
+                {result.issuer ? `Розпізнано: ${result.issuer}` : "Документ збережено"}
+              </div>
+              {result.subject && <div className="mt-0.5">{result.subject}</div>}
+              {result.referenceNumber && (
+                <div className="mt-0.5 text-muted">№ {result.referenceNumber}</div>
+              )}
+              {result.deadline && (
+                <div className="mt-0.5 font-medium text-warn">Строк до {result.deadline}</div>
+              )}
+              {result.filing?.folder && (
+                <div className="mt-2 text-xs text-muted">
+                  Тека для iCloud: <strong className="text-ink">{result.filing.folder}</strong>
+                </div>
+              )}
             </>
           ) : (
             <>
@@ -200,24 +243,32 @@ export function Scanner() {
                   : "Суму не вдалося прочитати"}
                 {result.confidence === "low" && " · знімок нечіткий, перевірте уважно"}
               </div>
-              <div className="mt-1 text-xs text-muted">
-                Операція нижче — звірте та збережіть.
-              </div>
             </>
           )}
         </div>
       )}
 
-      {pdfUrl && (
-        <a
-          href={pdfUrl}
-          download={`${kind === "receipt" ? "chek" : "dokument"}-${new Date()
-            .toISOString()
-            .slice(0, 10)}.pdf`}
-          className="btn-ghost mt-3 w-full"
-        >
-          Зберегти PDF у Файли (iCloud)
-        </a>
+      {(pdfUrl || metaUrl) && (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {pdfUrl && (
+            <a href={pdfUrl} download={`${downloadBase}.pdf`} className="btn-ghost">
+              Зберегти PDF у Файли
+            </a>
+          )}
+          {metaUrl && (
+            <a href={metaUrl} download={`${downloadBase}.txt`} className="btn-ghost">
+              Зберегти метадані (.txt)
+            </a>
+          )}
+        </div>
+      )}
+
+      {result?.filing?.folder && (
+        <p className="mt-2 text-xs text-muted">
+          Складіть обидва файли в теку <strong>{result.filing.folder}</strong> усередині
+          вашої теки документів в iCloud Drive. Швидка команда робить це сама —
+          див. docs/SHORTCUT.md.
+        </p>
       )}
     </div>
   );

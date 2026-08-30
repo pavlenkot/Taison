@@ -83,6 +83,32 @@ export interface Task {
   created_at: string;
 }
 
+export interface Document {
+  id: string;
+  receipt_id: string | null;
+  doc_type: string;
+  issuer: string | null;
+  issuer_slug: string | null;
+  subject: string | null;
+  reference_number: string | null;
+  document_date: string | null;
+  deadline: string | null;
+  amount_cents: number | null;
+  keywords: string[];
+  body_text: string | null;
+  language: string | null;
+  icloud_path: string | null;
+  created_at: string;
+  receipts?: { storage_path: string; mime: string | null } | null;
+}
+
+export interface DocumentFolder {
+  issuer_slug: string;
+  issuer: string;
+  documents: number;
+  last_document: string | null;
+}
+
 export interface Receipt {
   id: string;
   kind: "receipt" | "document";

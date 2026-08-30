@@ -15,12 +15,13 @@ const ITEMS: Item[] = [
   { href: "/", label: "Огляд", icon: "◎", primary: true },
   { href: "/transactions", label: "Операції", icon: "≡", primary: true },
   { href: "/scan", label: "Скан", icon: "⌷", primary: true },
-  { href: "/subscriptions", label: "Платежі", icon: "↻", primary: true },
+  { href: "/documents", label: "Документи", icon: "📄", primary: true },
+  { href: "/subscriptions", label: "Платежі", icon: "↻" },
   { href: "/tasks", label: "Завдання", icon: "✓" },
   { href: "/goals", label: "Цілі", icon: "◈" },
   { href: "/digest", label: "Підсумок", icon: "🗒" },
   { href: "/analytics", label: "Аналітика", icon: "▤" },
-  { href: "/receipts", label: "Скани", icon: "🗂" },
+  { href: "/receipts", label: "Усі скани", icon: "🗂" },
   { href: "/categories", label: "Категорії", icon: "◇" },
   { href: "/archive", label: "Архів", icon: "⌸" },
 ];
@@ -94,7 +95,7 @@ export function Nav({ email }: { email: string }) {
             href="/more"
             className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium transition ${
               [
-                "/more", "/tasks", "/goals", "/digest",
+                "/more", "/subscriptions", "/tasks", "/goals", "/digest",
                 "/analytics", "/receipts", "/categories", "/archive",
               ].some((p) =>
                 isActive(pathname, p),

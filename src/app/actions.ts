@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { parseAmountToCents, isoDate } from "@/lib/format";
+import { slugify } from "@/lib/slug";
 
 /** Витягує обов'язковий непорожній рядок. */
 function str(form: FormData, key: string): string {
@@ -265,27 +266,6 @@ export async function deleteTask(form: FormData) {
 
 // ------------------------------------------------------------ категорії
 
-/** Транслітерація для читабельного слага; сам слаг користувач ніде не бачить. */
-const TRANSLIT: Record<string, string> = {
-  а: "a", б: "b", в: "v", г: "h", ґ: "g", д: "d", е: "e", є: "ie", ж: "zh",
-  з: "z", и: "y", і: "i", ї: "i", й: "i", к: "k", л: "l", м: "m", н: "n",
-  о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "kh", ц: "ts",
-  ч: "ch", ш: "sh", щ: "shch", ь: "", ю: "iu", я: "ia", ы: "y", э: "e", ъ: "",
-};
-
-function slugify(name: string): string {
-  const base = name
-    .toLowerCase()
-    .split("")
-    .map((char) => TRANSLIT[char] ?? char)
-    .join("")
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 40);
-
-  return base.length > 0 ? base : `cat_${Date.now().toString(36)}`;
-}
-
 export async function addCategory(form: FormData) {
   const { supabase, userId } = await client();
 
@@ -293,7 +273,7 @@ export async function addCategory(form: FormData) {
   if (name.length === 0) throw new Error("Вкажіть назву категорії");
 
   const kind = str(form, "kind") === "income" ? "income" : "expense";
-  const base = slugify(name);
+  const base = slugify(name, "cat");
 
   // Слаг має бути унікальним у межах користувача — підбираємо вільний.
   const { data: taken } = await supabase
@@ -381,6 +361,71 @@ export async function markDigestSeen(form: FormData) {
 
   revalidatePath("/");
   revalidatePath("/digest");
+}
+
+// ------------------------------------------------------------ документи
+
+export async function updateDocument(form: FormData) {
+  const { supabase } = await client();
+
+  const issuer = optional(form, "issuer");
+  const keywords = str(form, "keywords")
+    .split(",")
+    .map((k) => k.trim())
+    .filter((k) => k.length > 0)
+    .slice(0, 25);
+
+  const amount = parseAmountToCents(str(form, "amount"));
+
+  const { error } = await supabase
+    .from("documents")
+    .update({
+      doc_type: str(form, "doc_type") || "other",
+      issuer,
+      // Слаг веде за собою теку адресата, тож перераховуємо разом із назвою.
+      issuer_slug: issuer ? slugify(issuer, "issuer") : null,
+      subject: optional(form, "subject"),
+      reference_number: optional(form, "reference_number"),
+      document_date: optional(form, "document_date"),
+      deadline: optional(form, "deadline"),
+      amount_cents: amount && amount > 0 ? amount : null,
+      keywords,
+    })
+    .eq("id", str(form, "id"));
+  fail("Не вдалося оновити документ", error);
+
+  revalidatePath("/documents");
+}
+
+export async function deleteDocument(form: FormData) {
+  const { supabase } = await client();
+
+  const id = str(form, "id");
+
+  // Спершу дізнаємось про файл: рядок documents піде каскадом за receipts,
+  // тож видаляємо в правильному порядку і прибираємо сам файл зі сховища.
+  const { data: doc } = await supabase
+    .from("documents")
+    .select("receipt_id, receipts (storage_path)")
+    .eq("id", id)
+    .maybeSingle();
+
+  const storagePath = (doc as { receipts?: { storage_path: string } | null } | null)?.receipts
+    ?.storage_path;
+
+  const { error } = await supabase.from("documents").delete().eq("id", id);
+  fail("Не вдалося видалити документ", error);
+
+  const receiptId = (doc as { receipt_id: string | null } | null)?.receipt_id;
+  if (receiptId) {
+    await supabase.from("receipts").delete().eq("id", receiptId);
+  }
+  if (storagePath) {
+    await supabase.storage.from("receipts").remove([storagePath]);
+  }
+
+  revalidatePath("/documents");
+  revalidatePath("/receipts");
 }
 
 // ------------------------------------------------------------------ інше

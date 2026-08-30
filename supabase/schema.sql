@@ -398,3 +398,151 @@ create policy "own files update" on storage.objects
 create policy "own files delete" on storage.objects
   for delete to authenticated
   using (bucket_id = 'receipts' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- =====================================================================
+--  Документи: розібрані сканом папери з метаданими та пошуком
+-- =====================================================================
+
+-- array_to_string у Postgres позначена як STABLE, бо в загальному випадку
+-- залежить від функції виводу типу елемента. Для масиву text це насправді
+-- незмінне перетворення, тож загортаємо його у власну immutable-функцію —
+-- інакше генеровану колонку пошуку створити не можна.
+create or replace function public.text_array_to_string(arr text[])
+returns text language sql immutable parallel safe as $$
+  select array_to_string(coalesce(arr, '{}'::text[]), ' ');
+$$;
+
+create table if not exists public.documents (
+  id                uuid primary key default gen_random_uuid(),
+  user_id           uuid not null references auth.users (id) on delete cascade,
+  -- Сам файл лежить у receipts; тут — те, що з нього вичитала модель.
+  receipt_id        uuid references public.receipts (id) on delete cascade,
+  doc_type          text not null default 'other' check (doc_type in (
+                      'government', 'tax', 'insurance', 'employment', 'housing',
+                      'banking', 'medical', 'education', 'vehicle', 'contract',
+                      'warranty', 'personal', 'other')),
+  -- Від кого документ: Finanzamt, Jobcenter, AOK, орендодавець…
+  issuer            text,
+  -- Те саме у вигляді імені теки: finanzamt, jobcenter
+  issuer_slug       text,
+  subject           text,
+  -- Aktenzeichen, Steuernummer, номер договору — за ним і шукають найчастіше
+  reference_number  text,
+  document_date     date,
+  -- Frist: строк, до якого треба відповісти або заплатити
+  deadline          date,
+  amount_cents      bigint,
+  keywords          text[] not null default '{}',
+  -- Повний текст зі скану — заради нього пошук і працює
+  body_text         text,
+  language          text,
+  -- Куди Швидка команда поклала файл в iCloud Drive
+  icloud_path       text,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
+);
+
+-- Пошуковий вектор. Конфігурація 'simple': без стемінгу, бо документи
+-- змішані — німецькі, українські та англійські, і жодна мовна
+-- конфігурація не підійшла б усім трьом.
+alter table public.documents
+  add column if not exists search tsvector
+  generated always as (
+    to_tsvector('simple'::regconfig,
+      coalesce(issuer, '') || ' ' ||
+      coalesce(subject, '') || ' ' ||
+      coalesce(reference_number, '') || ' ' ||
+      public.text_array_to_string(keywords) || ' ' ||
+      coalesce(body_text, '')
+    )
+  ) stored;
+
+create index if not exists documents_search_idx on public.documents using gin (search);
+create index if not exists documents_user_date_idx
+  on public.documents (user_id, document_date desc nulls last);
+create index if not exists documents_issuer_idx on public.documents (user_id, issuer_slug);
+create index if not exists documents_deadline_idx
+  on public.documents (user_id, deadline) where deadline is not null;
+
+alter table public.documents enable row level security;
+drop policy if exists "own rows" on public.documents;
+create policy "own rows" on public.documents
+  for all to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+drop trigger if exists touch_documents on public.documents;
+create trigger touch_documents before update on public.documents
+  for each row execute function public.touch_updated_at();
+
+-- ---------------------------------------------------------------------
+-- Пошук по документах.
+-- Повнотекстовий запит дає влучні збіги за словами, а ilike добирає
+-- частковий збіг: німецькі складені слова й уривки номерів справи
+-- інакше не знайшлися б.
+-- ---------------------------------------------------------------------
+create or replace function public.search_documents(p_query text)
+returns table (
+  id                uuid,
+  receipt_id        uuid,
+  doc_type          text,
+  issuer            text,
+  issuer_slug       text,
+  subject           text,
+  reference_number  text,
+  document_date     date,
+  deadline          date,
+  amount_cents      bigint,
+  keywords          text[],
+  language          text,
+  icloud_path       text,
+  created_at        timestamptz
+)
+language sql stable security invoker set search_path = public as $$
+  select
+    d.id, d.receipt_id, d.doc_type, d.issuer, d.issuer_slug, d.subject,
+    d.reference_number, d.document_date, d.deadline, d.amount_cents,
+    d.keywords, d.language, d.icloud_path, d.created_at
+  from public.documents d
+  where d.user_id = auth.uid()
+    and (
+      p_query is null
+      or btrim(p_query) = ''
+      or d.search @@ websearch_to_tsquery('simple', p_query)
+      or d.issuer ilike '%' || p_query || '%'
+      or d.subject ilike '%' || p_query || '%'
+      or d.reference_number ilike '%' || p_query || '%'
+      or d.body_text ilike '%' || p_query || '%'
+    )
+  order by
+    ts_rank(
+      d.search,
+      websearch_to_tsquery('simple', coalesce(nullif(btrim(p_query), ''), 'zzzz'))
+    ) desc,
+    d.document_date desc nulls last,
+    d.created_at desc
+  limit 200;
+$$;
+
+-- ---------------------------------------------------------------------
+-- Теки адресатів: те, що показуємо як «папки» і що Швидка команда
+-- створює в iCloud Drive.
+-- ---------------------------------------------------------------------
+create or replace function public.document_folders()
+returns table (
+  issuer_slug   text,
+  issuer        text,
+  documents     bigint,
+  last_document date
+)
+language sql stable security invoker set search_path = public as $$
+  select
+    coalesce(d.issuer_slug, 'inshe')          as issuer_slug,
+    coalesce(nullif(d.issuer, ''), 'Без адресата') as issuer,
+    count(*)::bigint                          as documents,
+    max(d.document_date)                      as last_document
+  from public.documents d
+  where d.user_id = auth.uid()
+  group by 1, 2
+  order by 3 desc, 2;
+$$;

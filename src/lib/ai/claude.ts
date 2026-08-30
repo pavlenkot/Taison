@@ -1,7 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { SYSTEM_PROMPT, USER_PROMPT } from "./prompt";
-import { ReceiptExtractionSchema, normalizeExtraction, type Extraction } from "./schema";
+import type * as z from "zod/v4";
 
 const IMAGE_TYPES: Record<string, "image/jpeg" | "image/png" | "image/gif" | "image/webp"> = {
   "image/jpeg": "image/jpeg",
@@ -24,7 +23,15 @@ function buildMediaBlock(data: string, mime: string): Anthropic.ContentBlockPara
   };
 }
 
-export async function extractWithClaude(data: string, mime: string): Promise<Extraction> {
+/** Один виклик Claude зі структурованою відповіддю за zod-схемою. */
+export async function runClaude<S extends z.ZodType>(
+  schema: S,
+  system: string,
+  user: string,
+  data: string,
+  mime: string,
+  maxTokens = 8000,
+): Promise<{ parsed: z.infer<S>; model: string }> {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY не налаштовано");
   }
@@ -34,20 +41,20 @@ export async function extractWithClaude(data: string, mime: string): Promise<Ext
 
   const response = await client.messages.parse({
     model,
-    max_tokens: 8000,
-    system: SYSTEM_PROMPT,
+    max_tokens: maxTokens,
+    system,
     messages: [
       {
         role: "user",
-        content: [buildMediaBlock(data, mime), { type: "text", text: USER_PROMPT }],
+        content: [buildMediaBlock(data, mime), { type: "text", text: user }],
       },
     ],
-    output_config: { format: zodOutputFormat(ReceiptExtractionSchema) },
+    output_config: { format: zodOutputFormat(schema) },
   });
 
   if (!response.parsed_output) {
     throw new Error("Claude повернув відповідь, яку не вдалося розібрати за схемою");
   }
 
-  return normalizeExtraction(response.parsed_output, "claude", model, response.parsed_output);
+  return { parsed: response.parsed_output as z.infer<S>, model };
 }
