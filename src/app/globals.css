@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink: 23 23 23;
+  --muted: 115 115 115;
+  --surface: 249 250 251;
+  --raised: 255 255 255;
+  --line: 228 228 231;
+  --accent: 37 99 235;
+  --positive: 21 128 61;
+  --negative: 190 38 38;
+  --warn: 180 83 9;
+  /* Колір серії на графіках: синій, перевірений на контраст і CVD */
+  --series-1: 42 120 214;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: 244 244 245;
+    --muted: 161 161 170;
+    --surface: 9 9 11;
+    --raised: 24 24 27;
+    --line: 39 39 42;
+    --accent: 96 165 250;
+    --positive: 74 222 128;
+    --negative: 248 113 113;
+    --warn: 251 191 36;
+    --series-1: 57 135 229;
+    color-scheme: dark;
+  }
+}
+
+html,
+body {
+  background: rgb(var(--surface));
+  color: rgb(var(--ink));
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  /* Місце під нижню панель і «підборіддя» айфона */
+  padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 768px) {
+  body {
+    padding-bottom: 0;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-line bg-raised p-4;
+  }
+
+  .field {
+    @apply w-full rounded-xl border border-line bg-raised px-3 py-2.5 text-base text-ink
+           outline-none transition placeholder:text-muted
+           focus:border-accent focus:ring-2 focus:ring-accent/25;
+  }
+
+  .label {
+    @apply mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5
+           text-sm font-semibold transition active:scale-[0.98] disabled:opacity-50
+           disabled:active:scale-100;
+  }
+
+  .btn-primary {
+    @apply btn bg-accent text-white hover:opacity-90;
+  }
+
+  .btn-ghost {
+    @apply btn border border-line bg-raised text-ink hover:bg-surface;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-line
+           px-2.5 py-1 text-xs font-medium;
+  }
+}
+
+/* Не даємо iOS збільшувати сторінку під час фокуса на полі */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
