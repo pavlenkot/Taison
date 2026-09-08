@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCategories } from "@/lib/data";
-import { formatSigned, formatDate, formatMoney, centsToInput } from "@/lib/format";
+import { formatSigned, formatDate, formatMoney, centsToInput, validDate } from "@/lib/format";
 import { resolvePeriod, type PeriodKind } from "@/lib/periods";
 import type { Transaction } from "@/lib/types";
 import { PageHeader, AddPanel, Empty } from "@/components/ui";
@@ -43,9 +43,15 @@ export default async function TransactionsPage({
   const offset = Number(params.offset ?? 0) || 0;
   const preset = resolvePeriod(periodKind, offset);
 
-  const custom = Boolean(params.from && params.to);
-  const from = custom ? params.from! : preset.from;
-  const to = custom ? params.to! : preset.to;
+  // Довільний проміжок беремо лише коли обидві дати справжні й не переставлені
+  // місцями. Сирий рядок із адреси не можна віддавати в порівняння з колонкою
+  // date: запит впаде, а сторінка мовчки покаже «операцій немає» — і кнопка
+  // «Експорт» повела б у файл за зовсім інший період.
+  const explicitFrom = validDate(params.from);
+  const explicitTo = validDate(params.to);
+  const custom = explicitFrom !== null && explicitTo !== null && explicitFrom <= explicitTo;
+  const from = custom ? explicitFrom! : preset.from;
+  const to = custom ? explicitTo! : preset.to;
 
   const search = sanitise(params.q ?? "");
   const categoryId = params.category ?? "";

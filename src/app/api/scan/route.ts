@@ -8,7 +8,6 @@ export const maxDuration = 120;
 
 interface Body {
   storagePath: string;
-  imageBase64: string;
   mime: string;
   kind: "receipt" | "document";
   originalName?: string;
@@ -41,7 +40,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Некоректний запит" }, { status: 400 });
   }
 
-  if (!body.storagePath || !body.imageBase64) {
+  if (!body.storagePath) {
     return NextResponse.json({ error: "Бракує файлу" }, { status: 400 });
   }
 
@@ -50,6 +49,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Недоступний шлях" }, { status: 403 });
   }
 
+  // Клієнт щойно поклав файл у сховище, тож забираємо його звідти, а не
+  // з тіла запиту: багатосторінковий договір у base64 не проліз би крізь
+  // обмеження на розмір тіла в безсерверній функції.
+  const { data: file, error: downloadError } = await supabase.storage
+    .from("receipts")
+    .download(body.storagePath);
+
+  if (downloadError || !file) {
+    return NextResponse.json(
+      { error: downloadError?.message ?? "Не вдалося прочитати завантажений файл" },
+      { status: 502 },
+    );
+  }
+
+  const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
+
   const wantsDocument = body.kind === "document";
 
   // Якщо знімали як чек, але це виявився папір — розбираємо ще раз
@@ -57,7 +72,7 @@ export async function POST(request: Request) {
   let receipt = null;
   if (!wantsDocument) {
     try {
-      receipt = await extractReceipt(body.imageBase64, body.mime);
+      receipt = await extractReceipt(base64, body.mime);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Невідома помилка";
       return NextResponse.json({ error: `Не вдалося розпізнати: ${message}` }, { status: 502 });
@@ -69,7 +84,7 @@ export async function POST(request: Request) {
   let document = null;
   if (asDocument) {
     try {
-      document = await extractDocument(body.imageBase64, body.mime);
+      document = await extractDocument(base64, body.mime);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Невідома помилка";
       return NextResponse.json({ error: `Не вдалося розпізнати: ${message}` }, { status: 502 });

@@ -121,7 +121,7 @@ export async function updateSubscription(form: FormData) {
       amount_cents: amount(form),
       category_id: optional(form, "category_id"),
       recurrence: str(form, "recurrence") || "monthly",
-      next_due_on: str(form, "next_due_on"),
+      next_due_on: str(form, "next_due_on") || isoDate(),
       notes: optional(form, "notes"),
       active: form.get("active") === "on",
     })

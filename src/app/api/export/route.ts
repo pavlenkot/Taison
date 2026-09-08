@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import ExcelJS from "exceljs";
 import { createClient } from "@/lib/supabase/server";
 import { resolvePeriod, type PeriodKind } from "@/lib/periods";
+import { validDate } from "@/lib/format";
 import type { Transaction } from "@/lib/types";
 
 export const maxDuration = 60;
@@ -23,15 +24,6 @@ const SOURCE_LABELS: Record<string, string> = {
   shortcut: "Швидка команда",
   subscription: "Підписка",
 };
-
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-/** Дата з рядка запиту приймається лише у форматі YYYY-MM-DD і лише справжня. */
-function validDate(value: string | null): string | null {
-  if (!value || !ISO_DATE.test(value)) return null;
-  const parsed = new Date(`${value}T00:00:00Z`);
-  return Number.isNaN(parsed.getTime()) ? null : value;
-}
 
 /**
  * Excel читає дату як дату лише з об'єкта Date; рядок лишається текстом,

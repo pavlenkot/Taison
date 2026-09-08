@@ -37,7 +37,13 @@ enum PDFBuilder {
         let scale = min(1, maxEdge / longest)
         let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
 
-        let renderer = UIGraphicsImageRenderer(size: size)
+        // scale = 1 обов'язково: типово рендерер бере масштаб екрана (2x, 3x),
+        // і замість 1600 px виходить 4800 — тобто вдев'ятеро більше пікселів
+        // і в кілька разів важчий base64 для моделі.
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
         let resized = renderer.image { _ in
             image.draw(in: CGRect(origin: .zero, size: size))
         }

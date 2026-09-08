@@ -40,18 +40,30 @@ export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const isPublic = PUBLIC_PREFIXES.some((p) => path.startsWith(p));
 
+  /**
+   * getUser() міг освіжити сесію і видати нові куки — вони лежать у `response`.
+   * Перенаправлення створює нову відповідь, тож куки треба перекласти в неї:
+   * інакше браузер залишиться зі старим refresh-токеном, який Supabase уже
+   * анулював, і наступний запит викине користувача на вхід.
+   */
+  const redirectTo = (url: URL) => {
+    const redirect = NextResponse.redirect(url);
+    for (const cookie of response.cookies.getAll()) redirect.cookies.set(cookie);
+    return redirect;
+  };
+
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", path);
-    return NextResponse.redirect(url);
+    return redirectTo(url);
   }
 
   if (user && path === "/login") {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     url.search = "";
-    return NextResponse.redirect(url);
+    return redirectTo(url);
   }
 
   return response;

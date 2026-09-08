@@ -105,6 +105,10 @@ struct ParsedReceipt: Codable {
 
     var date: Date {
         let f = DateFormatter()
+        // Формат фіксований, тож і локаль має бути фіксована: інакше на пристрої
+        // з буддійським чи японським календарем «2026-05-03» розбереться в іншу
+        // епоху або не розбереться зовсім, і дата чека мовчки стане сьогоднішньою.
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
         f.timeZone = TimeZone(identifier: "UTC")
         return f.date(from: purchasedOn) ?? Date()

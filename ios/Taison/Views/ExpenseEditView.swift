@@ -77,7 +77,9 @@ struct ExpenseEditView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Зберегти") { save() }
-                        .disabled(Money.cents(from: amountText) == nil)
+                        // Умова та сама, що й у save(): інакше на «0» кнопка
+                        // лишалася б активною, а натискання нічого не робило.
+                        .disabled((Money.cents(from: amountText) ?? 0) <= 0)
                 }
             }
             .quickLookPreview($previewURL)

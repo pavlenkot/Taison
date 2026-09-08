@@ -1,6 +1,13 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { formatMoney, formatSigned, formatDate, describeDueDate, isoDate } from "@/lib/format";
+import {
+  formatMoney,
+  formatSigned,
+  formatDate,
+  describeDueDate,
+  isoDate,
+  plural,
+} from "@/lib/format";
 import { resolvePeriod, type PeriodKind } from "@/lib/periods";
 import type { Subscription, Task, Transaction, PeriodTotal } from "@/lib/types";
 import { Stat, Empty } from "@/components/ui";
@@ -150,7 +157,8 @@ export default async function Dashboard() {
           <span className="text-xl">⌷</span>
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-semibold">
-              {pendingReview} скан{pendingReview === 1 ? "" : "и"} чекає на перевірку
+              {pendingReview} {plural(pendingReview, "скан", "скани", "сканів")}{" "}
+              {plural(pendingReview, "чекає", "чекають", "чекають")} на перевірку
             </span>
             <span className="block text-xs text-muted">
               Звірте суму й категорію, які розпізнав AI

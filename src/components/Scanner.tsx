@@ -108,6 +108,11 @@ export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
     setPdfUrl(null);
     setMetaUrl(null);
 
+    // Поки скан не прив'язаний до рядка receipts, файл у сховищі нічий:
+    // якщо розбір зірветься, його треба прибрати, інакше він залишиться
+    // у бакеті назавжди — жодна сторінка про нього не знає.
+    let orphan: { path: string; supabase: ReturnType<typeof createClient> } | null = null;
+
     try {
       setPhase("preparing");
       const shrunk = await Promise.all(Array.from(files).map((f) => downscale(f)));
@@ -125,18 +130,20 @@ export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
         .from("receipts")
         .upload(storagePath, pdf, { contentType: "application/pdf" });
       if (uploadError) throw new Error(uploadError.message);
+      orphan = { path: storagePath, supabase };
 
       setPdfUrl(URL.createObjectURL(pdf));
 
       setPhase("recognising");
-      const base64 = shrunk[0].dataUrl.split(",")[1];
+      // Надсилаємо лише шлях: сервер забере PDF зі сховища сам. Так у модель
+      // потрапляють усі сторінки (підсумок чека часто на останній), а тіло
+      // запиту лишається крихітним незалежно від кількості сторінок.
       const response = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           storagePath,
-          imageBase64: base64,
-          mime: "image/jpeg",
+          mime: "application/pdf",
           kind,
           originalName: files[0].name,
           byteSize: pdf.size,
@@ -145,6 +152,9 @@ export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
 
       const payload = (await response.json()) as Result & { error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Помилка розпізнавання");
+
+      // Скан прийнято — файл більше не сирота.
+      orphan = null;
 
       if (payload.filing?.metadata) {
         setMetaUrl(
@@ -156,6 +166,9 @@ export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
       setPhase("done");
       router.refresh();
     } catch (e) {
+      if (orphan) {
+        await orphan.supabase.storage.from("receipts").remove([orphan.path]);
+      }
       setError(e instanceof Error ? e.message : "Щось пішло не так");
       setPhase("error");
     } finally {

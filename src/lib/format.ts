@@ -84,3 +84,29 @@ export function isoDate(d: Date = new Date()): string {
     d.getDate(),
   ).padStart(2, "0")}`;
 }
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Дата з рядка запиту приймається лише у форматі YYYY-MM-DD і лише справжня.
+ * Усе інше — null: такий рядок не можна віддавати в порівняння з колонкою date,
+ * інакше база відповість помилкою, а сторінка мовчки покаже «нічого не знайдено».
+ */
+export function validDate(value: string | null | undefined): string | null {
+  if (!value || !ISO_DATE.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) ? null : value;
+}
+
+/**
+ * Українське відмінювання після числівника: 1 день, 2 дні, 5 днів,
+ * але 11–14 завжди беруть форму «багато» (11 днів, а не 11 день).
+ */
+export function plural(count: number, one: string, few: string, many: string): string {
+  const mod100 = count % 100;
+  const mod10 = count % 10;
+  if (mod100 >= 11 && mod100 <= 14) return many;
+  if (mod10 === 1) return one;
+  if (mod10 >= 2 && mod10 <= 4) return few;
+  return many;
+}

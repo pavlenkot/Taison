@@ -339,6 +339,7 @@ returns uuid
 language plpgsql security invoker set search_path = public as $$
 declare
   t public.tasks%rowtype;
+  v_base date;
   v_next date;
   v_new uuid := null;
 begin
@@ -352,14 +353,21 @@ begin
     where id = t.id;
 
   if t.repeat <> 'none' then
+    -- Відлік ведемо від пізнішої з двох дат: строку завдання і сьогодні.
+    -- Інакше закриття простроченого повтору народжує ще один прострочений:
+    -- щоденне завдання з минулого місяця довелося б закривати десятки разів,
+    -- поки воно доповзе до сьогодні.
+    v_base := greatest(t.due_on, current_date);
+
     v_next := case t.repeat
-      when 'daily'  then t.due_on + 1
-      when 'weekly' then t.due_on + 7
+      when 'daily'  then v_base + 1
+      -- Крок у 7 днів від початкового строку зберігає день тижня.
+      when 'weekly' then t.due_on + (((v_base - t.due_on) / 7) + 1) * 7
       when 'weekdays' then
-        case extract(isodow from t.due_on)
-          when 5 then t.due_on + 3   -- п'ятниця -> понеділок
-          when 6 then t.due_on + 2   -- субота  -> понеділок
-          else t.due_on + 1
+        case extract(isodow from v_base)
+          when 5 then v_base + 3   -- п'ятниця -> понеділок
+          when 6 then v_base + 2   -- субота  -> понеділок
+          else v_base + 1
         end
     end;
 
