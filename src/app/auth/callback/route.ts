@@ -32,9 +32,23 @@ async function captureGoogleTokens(session: Session | null): Promise<string | nu
   }
 }
 
+/**
+ * Куди повертати після входу. Приймаємо лише відносний шлях у межах
+ * застосунку: з рядка запиту сюди може прийти будь-що, і абсолютна адреса
+ * перетворила б посилання на вхід у перекидання на чужий сайт — уже після
+ * того, як людина ввела дані й довіряє сторінці.
+ */
+function safeNext(value: string | null): string {
+  if (!value) return "/";
+  if (!value.startsWith("/")) return "/";
+  // «//evil.com» і «/\\evil.com» браузер читає як зовнішню адресу.
+  if (value.startsWith("//") || value.startsWith("/\\")) return "/";
+  return value;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
-  const next = searchParams.get("next") ?? "/";
+  const next = safeNext(searchParams.get("next"));
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;

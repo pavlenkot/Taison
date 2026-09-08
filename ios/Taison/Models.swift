@@ -110,7 +110,10 @@ struct ParsedReceipt: Codable {
         // епоху або не розбереться зовсім, і дата чека мовчки стане сьогоднішньою.
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = TimeZone(identifier: "UTC")
+        // Календарна дата без часу має розбиратися в поточному поясі: за UTC
+        // «2026-05-03» на захід від Гринвіча стає 2 травня о 19:00, і чек
+        // потрапляє в попередній день, а на межі місяця — і в попередній місяць.
+        f.timeZone = TimeZone.current
         return f.date(from: purchasedOn) ?? Date()
     }
 }

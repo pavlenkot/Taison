@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { formatDate, formatMoney, describeDueDate } from "@/lib/format";
+import { formatDate, formatMoney, describeDueDate, isoDate } from "@/lib/format";
 import { DOC_TYPE_LABELS, DOC_TYPES, type DocType } from "@/lib/ai/documentSchema";
 import type { Document, DocumentFolder } from "@/lib/types";
 import { PageHeader, Empty } from "@/components/ui";
@@ -62,9 +62,20 @@ export default async function DocumentsPage({
   const { data: folderRows } = await supabase.rpc("document_folders");
   const folders = (folderRows as DocumentFolder[]) ?? [];
 
+  // Спершу найближчі майбутні строки, далі прострочені — від свіжіших.
+  // Просте сортування за датою вгору тримало б у картці найдавніші
+  // протерміновані папери, а справжній наступний строк не показувало б узагалі.
+  const today = isoDate();
   const withDeadline = documents
     .filter((d) => d.deadline)
-    .sort((a, b) => (a.deadline! < b.deadline! ? -1 : 1));
+    .sort((a, b) => {
+      const aAhead = a.deadline! >= today;
+      const bAhead = b.deadline! >= today;
+      if (aAhead !== bAhead) return aAhead ? -1 : 1;
+      if (a.deadline === b.deadline) return 0;
+      // Майбутні — від найближчого, прострочені — від найсвіжішого.
+      return (a.deadline! < b.deadline!) === aAhead ? -1 : 1;
+    });
 
   const activeFolder = folders.find((f) => f.issuer_slug === folderFilter);
   const filtered = query.length > 0 || typeFilter !== null || folderFilter !== null;

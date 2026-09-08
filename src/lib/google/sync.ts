@@ -7,6 +7,29 @@ const RECEIPTS = "Чеки";
 const DOCUMENTS = "Документи";
 const BACKUPS = "Резервні копії";
 
+/**
+ * Розширення за типом вмісту. Швидка команда шле PDF, але приймання сканів
+ * дозволяє і знімок: назвати JPEG «.pdf» означає покласти на Диск файл,
+ * який не відкриється ні в браузері, ні в застосунку Google Drive.
+ */
+const EXTENSIONS: Record<string, string> = {
+  "application/pdf": "pdf",
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/png": "png",
+  "image/heic": "heic",
+  "image/heif": "heif",
+  "image/webp": "webp",
+  "image/gif": "gif",
+};
+
+function extensionFor(mimeType: string): string {
+  const known = EXTENSIONS[mimeType];
+  if (known) return known;
+  const guess = (mimeType.split("/")[1] ?? "").replace(/[^a-z0-9]/gi, "").slice(0, 5);
+  return guess.length > 0 ? guess.toLowerCase() : "bin";
+}
+
 export interface FiledFile {
   id: string;
   link?: string;
@@ -71,7 +94,7 @@ async function tokenFor(userId: string): Promise<string | null> {
 
 export async function fileReceiptToDrive(
   userId: string,
-  receipt: { pdf: Buffer; fileName: string; occurredOn: string },
+  receipt: { data: Buffer; mimeType: string; fileName: string; occurredOn: string },
 ): Promise<FiledFile | null> {
   const token = await tokenFor(userId);
   if (!token) return null;
@@ -81,10 +104,10 @@ export async function fileReceiptToDrive(
   return withFreshTree(userId, token, async (folders) => {
     const target = await ensureFolder(token, year, folders.receipts!);
     const file = await uploadFile(token, {
-      name: `${safeFileName(receipt.fileName, 110)}.pdf`,
-      mimeType: "application/pdf",
+      name: `${safeFileName(receipt.fileName, 110)}.${extensionFor(receipt.mimeType)}`,
+      mimeType: receipt.mimeType,
       parentId: target,
-      data: receipt.pdf,
+      data: receipt.data,
     });
     return { id: file.id, link: file.webViewLink };
   });
@@ -92,7 +115,13 @@ export async function fileReceiptToDrive(
 
 export async function fileDocumentToDrive(
   userId: string,
-  doc: { pdf: Buffer; metadata: string; folderName: string; fileName: string },
+  doc: {
+    data: Buffer;
+    mimeType: string;
+    metadata: string;
+    folderName: string;
+    fileName: string;
+  },
 ): Promise<FiledDocument | null> {
   const token = await tokenFor(userId);
   if (!token) return null;
@@ -104,10 +133,10 @@ export async function fileDocumentToDrive(
     const target = await ensureFolder(token, folder, folders.documents!);
 
     const file = await uploadFile(token, {
-      name: `${base}.pdf`,
-      mimeType: "application/pdf",
+      name: `${base}.${extensionFor(doc.mimeType)}`,
+      mimeType: doc.mimeType,
       parentId: target,
-      data: doc.pdf,
+      data: doc.data,
     });
 
     // Текстовий супутник поруч: пошук Google Диска читає його вміст,

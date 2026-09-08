@@ -125,7 +125,8 @@ export async function POST(request: Request) {
       let driveError: string | null = null;
       try {
         drive = await fileDocumentToDrive(user.id, {
-          pdf: bytes,
+          data: bytes,
+          mimeType: body.mime,
           metadata: metadataSidecar(document),
           folderName: filing.folder,
           fileName: filing.filename,
@@ -212,7 +213,8 @@ export async function POST(request: Request) {
   let driveError: string | null = null;
   try {
     drive = await fileReceiptToDrive(user.id, {
-      pdf: bytes,
+      data: bytes,
+      mimeType: body.mime,
       fileName: safeFileName(
         [occurredOn, receipt!.merchant ?? "Чек", euro ? `${euro} EUR` : ""]
           .filter((part) => part.length > 0)

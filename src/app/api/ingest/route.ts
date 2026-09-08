@@ -151,7 +151,8 @@ export async function POST(request: Request) {
       let drive: Awaited<ReturnType<typeof fileDocumentToDrive>> = null;
       try {
         drive = await fileDocumentToDrive(owner.id, {
-          pdf: bytes,
+          data: bytes,
+          mimeType: mime,
           metadata: metadataSidecar(document),
           folderName: filing.folder,
           fileName: filing.filename,
@@ -233,7 +234,8 @@ export async function POST(request: Request) {
   let receiptDrive: Awaited<ReturnType<typeof fileReceiptToDrive>> = null;
   try {
     receiptDrive = await fileReceiptToDrive(owner.id, {
-      pdf: bytes,
+      data: bytes,
+      mimeType: mime,
       fileName: safeFileName(
         [occurredOn, receipt!.merchant ?? "Чек", euro !== "?" ? `${euro} EUR` : ""]
           .filter((part) => part.length > 0)

@@ -88,22 +88,27 @@ export async function GET(request: NextRequest) {
   const filename = `taison_${from}_${to}`;
 
   if (format === "csv") {
+    const quote = (value: string) => `"${value.replace(/"/g, '""')}"`;
+
     const lines = [HEADERS.map((h) => h.header).join(";")];
     for (const r of rows) {
       lines.push(
         [
           r.date,
           r.kind,
-          r.category,
-          r.merchant,
-          r.note,
+          // Захист від формул — лише для тексту, що прийшов від користувача.
+          safeCell(r.category),
+          safeCell(r.merchant),
+          safeCell(r.note),
           // Кома як десятковий роздільник — так Excel з українською/німецькою
-          // локаллю одразу бачить число, а не текст
+          // локаллю одразу бачить число, а не текст. Через safeCell суму
+          // пропускати не можна: витрата від'ємна, тож апостроф перед «-12,34»
+          // перетворив би кожну витрату на текст, і жодна сума не порахувалась би.
           r.amount.toFixed(2).replace(".", ","),
           r.currency,
           r.source,
         ]
-          .map((v) => `"${safeCell(String(v)).replace(/"/g, '""')}"`)
+          .map(quote)
           .join(";"),
       );
     }

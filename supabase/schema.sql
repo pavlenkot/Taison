@@ -239,6 +239,13 @@ begin
   return new;
 end $$;
 
+-- Обидві функції security definer, а користувача перша бере параметром —
+-- отже, ззовні викликати їх не можна: PostgREST віддає все зі схеми public
+-- як RPC, і будь-хто з анонімним ключем додав би рядки в чужий акаунт.
+-- Викликає їх лише тригер, який виконується від власника і прав не питає.
+revoke all on function public.seed_default_categories(uuid) from public, anon, authenticated;
+revoke all on function public.handle_new_user() from public, anon, authenticated;
+
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
