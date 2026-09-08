@@ -558,3 +558,65 @@ language sql stable security invoker set search_path = public as $$
   group by 1
   order by 3 desc, 2;
 $$;
+
+-- =====================================================================
+--  Google Диск: доступ і розкладка файлів
+-- =====================================================================
+
+-- Supabase не зберігає й не оновлює токен постачальника: він приходить
+-- один раз, одразу після входу. Тому refresh-токен зберігаємо самі.
+-- Таблиця під RLS БЕЗ ЖОДНОЇ політики — отже, роль authenticated до неї
+-- не дістанеться взагалі; читає й пише лише сервер із ключем service_role.
+create table if not exists public.google_credentials (
+  user_id                uuid primary key references auth.users (id) on delete cascade,
+  google_email           text,
+  -- Зашифрований на боці застосунку (AES-256-GCM), а не просто текст:
+  -- витік дампа бази без ключа застосунку не дає доступу до Диска.
+  refresh_token_enc      text not null,
+  access_token_enc       text,
+  access_token_expires_at timestamptz,
+  scope                  text,
+  -- Корінь «Taison» на Диску та типові підтеки, щоб не шукати їх щоразу
+  drive_root_id          text,
+  drive_receipts_id      text,
+  drive_documents_id     text,
+  drive_backups_id       text,
+  last_backup_at         timestamptz,
+  connected_at           timestamptz not null default now(),
+  updated_at             timestamptz not null default now()
+);
+
+-- Для тих, хто виконував цю схему до появи резервних копій
+alter table public.google_credentials add column if not exists last_backup_at timestamptz;
+
+alter table public.google_credentials enable row level security;
+-- Політик навмисно немає: жоден клієнтський запит сюди не пройде.
+
+drop trigger if exists touch_google_credentials on public.google_credentials;
+create trigger touch_google_credentials before update on public.google_credentials
+  for each row execute function public.touch_updated_at();
+
+-- Стан підключення для інтерфейсу — без жодного натяку на самі токени.
+create or replace function public.google_connection_status()
+returns table (
+  connected       boolean,
+  google_email    text,
+  drive_root_id   text,
+  connected_at    timestamptz,
+  last_backup_at  timestamptz
+)
+language sql stable security definer set search_path = public as $$
+  select true, g.google_email, g.drive_root_id, g.connected_at, g.last_backup_at
+  from public.google_credentials g
+  where g.user_id = auth.uid();
+$$;
+
+revoke all on function public.google_connection_status() from public;
+grant execute on function public.google_connection_status() to authenticated;
+
+-- Куди лягла копія файлу на Диску
+alter table public.receipts  add column if not exists drive_file_id text;
+alter table public.receipts  add column if not exists drive_link text;
+alter table public.documents add column if not exists drive_file_id text;
+alter table public.documents add column if not exists drive_link text;
+alter table public.documents add column if not exists drive_meta_file_id text;

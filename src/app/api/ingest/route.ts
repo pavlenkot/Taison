@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { extractReceipt, extractDocument, aiConfigured, activeProvider } from "@/lib/ai";
 import { persistDocument } from "@/lib/saveDocument";
+import { metadataSidecar } from "@/lib/ai/documentSchema";
+import { fileReceiptToDrive, fileDocumentToDrive } from "@/lib/google/sync";
 import { isoDate } from "@/lib/format";
 import { safeFileName } from "@/lib/slug";
 
@@ -146,9 +148,37 @@ export async function POST(request: Request) {
         typeof icloudPath === "string" ? icloudPath : null,
       );
 
+      let drive: Awaited<ReturnType<typeof fileDocumentToDrive>> = null;
+      try {
+        drive = await fileDocumentToDrive(owner.id, {
+          pdf: bytes,
+          metadata: metadataSidecar(document),
+          folderName: filing.folder,
+          fileName: filing.filename,
+        });
+      } catch {
+        // Диск — найкраще зусилля; скан уже збережено в застосунку.
+      }
+
+      if (drive) {
+        await supabase
+          .from("documents")
+          .update({
+            drive_file_id: drive.file.id,
+            drive_link: drive.file.link ?? null,
+            drive_meta_file_id: drive.meta?.id ?? null,
+          })
+          .eq("receipt_id", stored.id);
+        await supabase
+          .from("receipts")
+          .update({ drive_file_id: drive.file.id, drive_link: drive.file.link ?? null })
+          .eq("id", stored.id);
+      }
+
       return NextResponse.json({
         ok: true,
         kind: "document",
+        driveLink: drive?.file.link ?? null,
         // Швидка команда читає саме ці три поля
         folder: filing.folder,
         filename: filing.filename,
@@ -198,10 +228,35 @@ export async function POST(request: Request) {
   }
 
   const euro = receipt!.totalCents ? (receipt!.totalCents / 100).toFixed(2) : "?";
+  const occurredOn = receipt!.purchasedOn ?? isoDate();
+
+  let receiptDrive: Awaited<ReturnType<typeof fileReceiptToDrive>> = null;
+  try {
+    receiptDrive = await fileReceiptToDrive(owner.id, {
+      pdf: bytes,
+      fileName: safeFileName(
+        [occurredOn, receipt!.merchant ?? "Чек", euro !== "?" ? `${euro} EUR` : ""]
+          .filter((part) => part.length > 0)
+          .join(" · "),
+        110,
+      ),
+      occurredOn,
+    });
+  } catch {
+    // Те саме: скан уже в застосунку, Диск наздожене наступного разу.
+  }
+
+  if (receiptDrive) {
+    await supabase
+      .from("receipts")
+      .update({ drive_file_id: receiptDrive.id, drive_link: receiptDrive.link ?? null })
+      .eq("id", stored.id);
+  }
 
   return NextResponse.json({
     ok: true,
     kind: "receipt",
+    driveLink: receiptDrive?.link ?? null,
     folder: "",
     // Через safeFileName: назву магазину читає модель, а вона може
     // повернути «/» чи «:», які зламали б шлях у кроці «Зберегти файл».

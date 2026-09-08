@@ -8,17 +8,40 @@ export default function LoginPage() {
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [error, setError] = useState("");
 
+  function nextPath(): string {
+    return new URLSearchParams(window.location.search).get("next") ?? "/";
+  }
+
+  async function signInWithGoogle() {
+    setError("");
+    const supabase = createClient();
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        // drive.file — доступ лише до того, що застосунок сам створив.
+        // Ширші дозволи вимагали б перевірки застосунку в Google.
+        scopes: "https://www.googleapis.com/auth/drive.file",
+        // Без цих двох параметрів Google не віддає refresh-токен,
+        // і доступ до Диска помер би за годину.
+        queryParams: { access_type: "offline", prompt: "consent" },
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath())}`,
+      },
+    });
+
+    if (error) setError(error.message);
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setStatus("sending");
     setError("");
 
-    const next = new URLSearchParams(window.location.search).get("next") ?? "/";
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath())}`,
       },
     });
 
@@ -57,7 +80,24 @@ export default function LoginPage() {
             </button>
           </div>
         ) : (
-          <form onSubmit={submit} className="card">
+          <div className="space-y-3">
+            <div className="card">
+              <button type="button" onClick={signInWithGoogle} className="btn-primary w-full">
+                Увійти через Google
+              </button>
+              <p className="mt-2 text-center text-xs text-muted">
+                Заразом підключиться Google Диск: чеки й документи
+                складатимуться в теку «Taison» на вашому Диску
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 text-xs text-muted">
+              <span className="h-px flex-1 bg-line" />
+              або
+              <span className="h-px flex-1 bg-line" />
+            </div>
+
+            <form onSubmit={submit} className="card">
             <label className="label" htmlFor="email">
               Ваш e-mail
             </label>
@@ -84,8 +124,10 @@ export default function LoginPage() {
 
             <p className="mt-3 text-center text-xs text-muted">
               Ми надішлемо одноразове посилання. Паролів немає.
+              Диск при цьому не підключається.
             </p>
-          </form>
+            </form>
+          </div>
         )}
       </div>
     </main>

@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { extractReceipt, extractDocument, aiConfigured, activeProvider } from "@/lib/ai";
 import { persistDocument } from "@/lib/saveDocument";
+import { metadataSidecar } from "@/lib/ai/documentSchema";
+import { fileReceiptToDrive, fileDocumentToDrive } from "@/lib/google/sync";
+import { safeFileName } from "@/lib/slug";
 import { isoDate } from "@/lib/format";
 
 export const maxDuration = 120;
@@ -63,7 +66,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const base64 = bytes.toString("base64");
 
   const wantsDocument = body.kind === "document";
 
@@ -114,10 +118,44 @@ export async function POST(request: Request) {
   if (document) {
     try {
       const { id, filing } = await persistDocument(supabase, user.id, stored.id, document, null);
+
+      // Диск — найкраще зусилля: якщо він не підключений або не відповів,
+      // скан усе одно збережено в застосунку, і втратити його неможливо.
+      let drive: Awaited<ReturnType<typeof fileDocumentToDrive>> = null;
+      let driveError: string | null = null;
+      try {
+        drive = await fileDocumentToDrive(user.id, {
+          pdf: bytes,
+          metadata: metadataSidecar(document),
+          folderName: filing.folder,
+          fileName: filing.filename,
+        });
+      } catch (e) {
+        driveError = e instanceof Error ? e.message : "Не вдалося покласти на Диск";
+      }
+
+      if (drive) {
+        await supabase
+          .from("documents")
+          .update({
+            drive_file_id: drive.file.id,
+            drive_link: drive.file.link ?? null,
+            drive_meta_file_id: drive.meta?.id ?? null,
+            icloud_path: null,
+          })
+          .eq("id", id);
+        await supabase
+          .from("receipts")
+          .update({ drive_file_id: drive.file.id, drive_link: drive.file.link ?? null })
+          .eq("id", stored.id);
+      }
+
       return NextResponse.json({
         documentKind: "document",
         documentId: id,
         receiptId: stored.id,
+        drive: drive ? { folder: drive.folder, link: drive.file.link ?? null } : null,
+        driveError,
         issuer: document.issuer,
         subject: document.subject,
         docType: document.docType,
@@ -167,10 +205,39 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: txError.message }, { status: 500 });
   }
 
+  const occurredOn = receipt!.purchasedOn ?? isoDate();
+  const euro = receipt!.totalCents ? (receipt!.totalCents / 100).toFixed(2) : "";
+
+  let drive: Awaited<ReturnType<typeof fileReceiptToDrive>> = null;
+  let driveError: string | null = null;
+  try {
+    drive = await fileReceiptToDrive(user.id, {
+      pdf: bytes,
+      fileName: safeFileName(
+        [occurredOn, receipt!.merchant ?? "Чек", euro ? `${euro} EUR` : ""]
+          .filter((part) => part.length > 0)
+          .join(" · "),
+        110,
+      ),
+      occurredOn,
+    });
+  } catch (e) {
+    driveError = e instanceof Error ? e.message : "Не вдалося покласти на Диск";
+  }
+
+  if (drive) {
+    await supabase
+      .from("receipts")
+      .update({ drive_file_id: drive.id, drive_link: drive.link ?? null })
+      .eq("id", stored.id);
+  }
+
   return NextResponse.json({
     documentKind: "receipt",
     receiptId: stored.id,
     transactionId: transaction.id,
+    drive: drive ? { link: drive.link ?? null } : null,
+    driveError,
     merchant: receipt!.merchant,
     totalCents: receipt!.totalCents,
     purchasedOn: receipt!.purchasedOn,

@@ -1,13 +1,11 @@
 import { currentUser } from "@/lib/supabase/server";
 import { PageHeader, SectionLink } from "@/components/ui";
-import { activeProvider } from "@/lib/ai";
 import { signOut } from "../actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function MorePage() {
   const user = await currentUser();
-  const provider = activeProvider();
 
   return (
     <>
@@ -44,6 +42,12 @@ export default async function MorePage() {
           icon="🗂"
           title="Усі скани"
           description="Файли чеків і документів як є"
+        />
+        <SectionLink
+          href="/settings"
+          icon="⚙"
+          title="Налаштування"
+          description="Google Диск, резервні копії, рушій розпізнавання"
         />
         <SectionLink
           href="/categories"
@@ -86,21 +90,6 @@ export default async function MorePage() {
         У файлі Excel два аркуші: усі операції та підсумок за категоріями. Витрати
         від&apos;ємні, доходи додатні — як у банківській виписці.
       </p>
-
-      <h2 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wide text-muted">
-        Налаштування
-      </h2>
-      <div className="card text-sm">
-        <div className="flex justify-between">
-          <span className="text-muted">Рушій розпізнавання</span>
-          <strong>{provider === "claude" ? "Claude" : "Gemini"}</strong>
-        </div>
-        <p className="mt-2 text-xs text-muted">
-          Перемикається змінною <code>AI_PROVIDER</code> у налаштуваннях Vercel:
-          значення <code>claude</code> або <code>gemini</code>. Після зміни потрібен
-          повторний деплой.
-        </p>
-      </div>
 
       <form action={signOut} className="mt-6">
         <button type="submit" className="btn-ghost w-full text-negative">

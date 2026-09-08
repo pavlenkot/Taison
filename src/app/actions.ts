@@ -5,6 +5,10 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { parseAmountToCents, isoDate } from "@/lib/format";
 import { slugify } from "@/lib/slug";
+import { disconnectGoogle } from "@/lib/google/tokens";
+import { prepareDrive as prepareDriveTree, uploadBackupToDrive } from "@/lib/google/sync";
+import { buildBackupWorkbook } from "@/lib/backup";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 /** Витягує обов'язковий непорожній рядок. */
 function str(form: FormData, key: string): string {
@@ -429,6 +433,46 @@ export async function deleteDocument(form: FormData) {
   // Видаляють із картки документа — залишити користувача на ній не можна:
   // сторінки вже немає, і вона показала б 404.
   redirect("/documents");
+}
+
+// ------------------------------------------------------------ Google Диск
+
+export async function disconnectDrive() {
+  const { userId } = await client();
+  await disconnectGoogle(userId);
+  revalidatePath("/settings");
+}
+
+/** Створює теку «Taison» з підтеками, щоб вона з'явилася на Диску відразу. */
+export async function createDriveFolders() {
+  const { userId } = await client();
+  await prepareDriveTree(userId);
+  revalidatePath("/settings");
+}
+
+export async function backupToDrive() {
+  const { supabase, userId } = await client();
+
+  // Книгу збираємо клієнтом користувача: RLS сама віддасть лише його рядки.
+  const { buffer } = await buildBackupWorkbook(supabase);
+
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  const uploaded = await uploadBackupToDrive(userId, {
+    name: `taison-${stamp}.xlsx`,
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    data: buffer,
+  });
+
+  if (!uploaded) {
+    throw new Error("Google Диск не підключено");
+  }
+
+  await createAdminClient()
+    .from("google_credentials")
+    .update({ last_backup_at: new Date().toISOString() })
+    .eq("user_id", userId);
+
+  revalidatePath("/settings");
 }
 
 // ------------------------------------------------------------------ інше

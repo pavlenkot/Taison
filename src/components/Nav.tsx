@@ -24,6 +24,7 @@ const ITEMS: Item[] = [
   { href: "/receipts", label: "Усі скани", icon: "🗂" },
   { href: "/categories", label: "Категорії", icon: "◇" },
   { href: "/archive", label: "Архів", icon: "⌸" },
+  { href: "/settings", label: "Налаштування", icon: "⚙" },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -96,7 +97,7 @@ export function Nav({ email }: { email: string }) {
             className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium transition ${
               [
                 "/more", "/subscriptions", "/tasks", "/goals", "/digest",
-                "/analytics", "/receipts", "/categories", "/archive",
+                "/analytics", "/receipts", "/categories", "/archive", "/settings",
               ].some((p) =>
                 isActive(pathname, p),
               )
