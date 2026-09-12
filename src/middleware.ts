@@ -21,7 +21,51 @@ const PUBLIC_PREFIXES = [
   "/offline.html",
 ];
 
+/**
+ * Без адреси й ключа Supabase клієнт не створюється, а кидає — і то ще до
+ * try/catch нижче. Для Vercel це «MIDDLEWARE_INVOCATION_FAILED» на КОЖНІЙ
+ * адресі, зі сторінкою входу включно: порожня п'ятисотка, з якої не видно,
+ * що бракує однієї змінної. Тому перевіряємо самі й кажемо прямо.
+ *
+ * Відповідаємо відмовою, а не пропускаємо далі: без Supabase перевірити
+ * сесію нічим, і пускати всередину не можна.
+ */
+function missingEnv(): string[] {
+  return [
+    ["NEXT_PUBLIC_SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL],
+    ["NEXT_PUBLIC_SUPABASE_ANON_KEY", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY],
+  ]
+    .filter(([, value]) => !value?.trim())
+    .map(([name]) => name as string);
+}
+
+function setupNeeded(missing: string[]): NextResponse {
+  const list = missing.map((name) => `<li><code>${name}</code></li>`).join("");
+  return new NextResponse(
+    `<!doctype html><html lang="uk"><meta charset="utf-8">
+     <meta name="viewport" content="width=device-width,initial-scale=1">
+     <title>Застосунок не налаштовано</title>
+     <style>
+       body{font:16px/1.6 system-ui,sans-serif;max-width:34rem;margin:12vh auto;padding:0 1.5rem;color:#111}
+       code{background:#f1f1f1;padding:.1em .35em;border-radius:.25em;font-size:.95em}
+       li{margin:.3em 0}
+       @media(prefers-color-scheme:dark){body{background:#111;color:#eee}code{background:#262626}}
+     </style>
+     <h1>Застосунок не налаштовано</h1>
+     <p>На сервері бракує змінних оточення:</p>
+     <ul>${list}</ul>
+     <p>Додайте їх у налаштуваннях проєкту (Vercel → Settings → Environment
+     Variables) і перезберіть застосунок — уже додані змінні не потрапляють
+     у збірку, яка вже відбулася.</p>
+     <p>Значення — у панелі Supabase, Settings → API.</p>`,
+    { status: 503, headers: { "content-type": "text/html; charset=utf-8" } },
+  );
+}
+
 export async function middleware(request: NextRequest) {
+  const missing = missingEnv();
+  if (missing.length > 0) return setupNeeded(missing);
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
