@@ -23,23 +23,32 @@ function subject(): string | null {
   return owner ? `mailto:${owner}` : null;
 }
 
+/**
+ * Публічний ключ той самий, що й у браузері: підпис має збігатися з тим,
+ * яким пристрій підписався, інакше push-сервіс відповість 403. Тому спершу
+ * беремо NEXT_PUBLIC_-змінну — саме її бачить сторінка підписки. Друга назва
+ * лишена для сумісності зі старими налаштуваннями.
+ */
+function publicKey(): string | null {
+  const key =
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() ||
+    process.env.VAPID_PUBLIC_KEY?.trim();
+  return key || null;
+}
+
 export function pushConfigured(): boolean {
-  return Boolean(
-    process.env.VAPID_PUBLIC_KEY?.trim() &&
-      process.env.VAPID_PRIVATE_KEY?.trim() &&
-      subject(),
-  );
+  return Boolean(publicKey() && process.env.VAPID_PRIVATE_KEY?.trim() && subject());
 }
 
 function configure(): void {
   if (!pushConfigured()) {
     throw new Error(
-      "Сповіщення не налаштовано: бракує VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY або адреси власника",
+      "Сповіщення не налаштовано: бракує NEXT_PUBLIC_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY або адреси власника",
     );
   }
   webpush.setVapidDetails(
     subject()!,
-    process.env.VAPID_PUBLIC_KEY!.trim(),
+    publicKey()!,
     process.env.VAPID_PRIVATE_KEY!.trim(),
   );
 }
