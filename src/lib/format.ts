@@ -94,8 +94,15 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  */
 export function validDate(value: string | null | undefined): string | null {
   if (!value || !ISO_DATE.test(value)) return null;
+
   const parsed = new Date(`${value}T00:00:00Z`);
-  return Number.isNaN(parsed.getTime()) ? null : value;
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  // JS мовчки «виправляє» неіснуючу дату: 30 лютого стає 2 березня, і
+  // перевірка на Invalid Date її пропускає. Тому звіряємо результат назад:
+  // інакше такий рядок пішов би в порівняння з колонкою date, і база
+  // відповіла б помилкою замість порожнього результату.
+  return parsed.toISOString().slice(0, 10) === value ? value : null;
 }
 
 /**
