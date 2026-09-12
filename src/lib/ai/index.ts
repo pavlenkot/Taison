@@ -1,5 +1,6 @@
 import { runClaude } from "./claude";
 import { runGemini } from "./gemini";
+import { runOpenRouter } from "./openrouter";
 import { SYSTEM_PROMPT, USER_PROMPT } from "./prompt";
 import { DOCUMENT_SYSTEM_PROMPT, DOCUMENT_USER_PROMPT } from "./documentPrompt";
 import { ReceiptExtractionSchema, normalizeExtraction, type Extraction } from "./schema";
@@ -10,17 +11,26 @@ import {
 } from "./documentSchema";
 import type * as z from "zod/v4";
 
-export type AiProvider = "claude" | "gemini";
+export type AiProvider = "claude" | "gemini" | "openrouter";
 
 export function activeProvider(): AiProvider {
-  return process.env.AI_PROVIDER?.trim().toLowerCase() === "claude" ? "claude" : "gemini";
+  const name = process.env.AI_PROVIDER?.trim().toLowerCase();
+  if (name === "claude") return "claude";
+  if (name === "openrouter") return "openrouter";
+  return "gemini";
 }
 
 /** Чи є ключ для обраного рушія. Дозволяє показати зрозумілу помилку до виклику. */
 export function aiConfigured(): boolean {
-  return activeProvider() === "claude"
-    ? Boolean(process.env.ANTHROPIC_API_KEY)
-    : Boolean(process.env.GEMINI_API_KEY);
+  switch (activeProvider()) {
+    case "claude":
+      return Boolean(process.env.ANTHROPIC_API_KEY);
+    // Модель тут так само обов'язкова: без неї OpenRouter не знає, кого питати.
+    case "openrouter":
+      return Boolean(process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_MODEL);
+    default:
+      return Boolean(process.env.GEMINI_API_KEY);
+  }
 }
 
 /**
@@ -36,10 +46,9 @@ async function run<S extends z.ZodType>(
   maxTokens?: number,
 ): Promise<{ parsed: z.infer<S>; model: string; provider: AiProvider }> {
   const provider = activeProvider();
-  const result =
-    provider === "claude"
-      ? await runClaude(schema, system, user, base64, mime, maxTokens)
-      : await runGemini(schema, system, user, base64, mime, maxTokens);
+  const engine =
+    provider === "claude" ? runClaude : provider === "openrouter" ? runOpenRouter : runGemini;
+  const result = await engine(schema, system, user, base64, mime, maxTokens);
 
   return { ...result, provider };
 }
