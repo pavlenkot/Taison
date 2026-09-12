@@ -118,6 +118,8 @@ export async function addSubscription(form: FormData) {
 export async function updateSubscription(form: FormData) {
   const { supabase } = await client();
 
+  const nextDue = str(form, "next_due_on") || isoDate();
+
   const { error } = await supabase
     .from("subscriptions")
     .update({
@@ -125,7 +127,10 @@ export async function updateSubscription(form: FormData) {
       amount_cents: amount(form),
       category_id: optional(form, "category_id"),
       recurrence: str(form, "recurrence") || "monthly",
-      next_due_on: str(form, "next_due_on") || isoDate(),
+      next_due_on: nextDue,
+      // Користувач змінив дату вручну — отже, переставив і день списання.
+      // Оплата підписки день не чіпає, там він лишається якорем.
+      billing_day: Number(nextDue.slice(8, 10)),
       notes: optional(form, "notes"),
       active: form.get("active") === "on",
     })

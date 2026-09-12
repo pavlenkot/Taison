@@ -82,6 +82,10 @@ create table if not exists public.subscriptions (
   recurrence    text not null default 'monthly'
                 check (recurrence in ('once', 'weekly', 'monthly', 'quarterly', 'yearly')),
   next_due_on   date not null,
+  -- День місяця, на який виставлено рахунок. Зберігається окремо, бо
+  -- лютий «підрізає» 31-ше до 28-го, і без окремого якоря підписка
+  -- назавжди з'їжджає на 28-ме число.
+  billing_day   smallint,
   notes         text,
   active        boolean not null default true,
   created_at    timestamptz not null default now(),
@@ -90,6 +94,26 @@ create table if not exists public.subscriptions (
 
 create index if not exists subscriptions_due_idx
   on public.subscriptions (user_id, active, next_due_on);
+
+alter table public.subscriptions add column if not exists billing_day smallint;
+update public.subscriptions
+   set billing_day = extract(day from next_due_on)::smallint
+ where billing_day is null;
+
+create or replace function public.set_billing_day()
+returns trigger language plpgsql as $$
+begin
+  if new.billing_day is null then
+    new.billing_day := extract(day from new.next_due_on)::smallint;
+  end if;
+  return new;
+end $$;
+
+-- Лише на вставку: під час оплати дата рухається, а день списання
+-- має лишатися тим самим якорем.
+drop trigger if exists set_billing_day_on_insert on public.subscriptions;
+create trigger set_billing_day_on_insert before insert on public.subscriptions
+  for each row execute function public.set_billing_day();
 
 -- Кожен факт оплати — рядок тут. Це і є архів платежів.
 create table if not exists public.subscription_payments (
@@ -287,6 +311,24 @@ language sql stable security invoker set search_path = public as $$
 $$;
 
 -- ---------------------------------------------------------------------
+-- Додає місяці, тримаючись початкового дня списання.
+-- Просте p_from + interval '1 month' після лютого дає 28-ме й більше
+-- ніколи не повертається на 31-ше — саме тому день передається окремо.
+-- ---------------------------------------------------------------------
+create or replace function public.add_months_keep_day(
+  p_from date, p_months integer, p_day integer
+)
+returns date language sql immutable set search_path = public as $$
+  select (date_trunc('month', p_from::timestamp) + make_interval(months => p_months))::date
+       + (least(
+            p_day,
+            extract(day from (date_trunc('month', p_from::timestamp)
+                              + make_interval(months => p_months + 1)
+                              - interval '1 day'))::integer
+          ) - 1);
+$$;
+
+-- ---------------------------------------------------------------------
 -- Оплата підписки: створює витрату, пише в архів платежів,
 -- пересуває наступну дату. Все однією транзакцією.
 -- ---------------------------------------------------------------------
@@ -301,6 +343,9 @@ declare
   s public.subscriptions%rowtype;
   v_amount bigint;
   v_tx uuid;
+  v_next date;
+  v_day smallint;
+  v_steps integer;
 begin
   select * into s from public.subscriptions where id = p_subscription_id;
   if not found then
@@ -324,14 +369,29 @@ begin
   if s.recurrence = 'once' then
     update public.subscriptions set active = false where id = s.id;
   else
-    update public.subscriptions
-      set next_due_on = s.next_due_on + case s.recurrence
-            when 'weekly'    then interval '1 week'
-            when 'monthly'   then interval '1 month'
-            when 'quarterly' then interval '3 months'
-            when 'yearly'    then interval '1 year'
-          end
-      where id = s.id;
+    -- Крокуємо, поки не опинимося строго після дати оплати. Інакше
+    -- прострочена підписка лишалася б простроченою: щоб наздогнати
+    -- пропущений рік, її довелося б «оплатити» дванадцять разів, і
+    -- кожне натискання створювало б зайву витрату в обліку.
+    v_day := coalesce(s.billing_day, extract(day from s.next_due_on)::smallint);
+    v_next := s.next_due_on;
+    v_steps := 0;
+
+    loop
+      v_steps := v_steps + 1;
+      exit when v_steps > 1200;  -- запобіжник від вічного циклу
+
+      v_next := case s.recurrence
+        when 'weekly'    then v_next + 7
+        when 'monthly'   then public.add_months_keep_day(v_next, 1, v_day)
+        when 'quarterly' then public.add_months_keep_day(v_next, 3, v_day)
+        when 'yearly'    then public.add_months_keep_day(v_next, 12, v_day)
+      end;
+
+      exit when v_next > p_paid_on;
+    end loop;
+
+    update public.subscriptions set next_due_on = v_next where id = s.id;
   end if;
 
   return v_tx;
@@ -353,6 +413,11 @@ begin
   select * into t from public.tasks where id = p_task_id;
   if not found then
     raise exception 'Завдання не знайдено';
+  end if;
+
+  -- Подвійне натискання не має створювати другий примірник повтору.
+  if t.archived_at is not null then
+    return null;
   end if;
 
   update public.tasks

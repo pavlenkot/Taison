@@ -127,21 +127,21 @@ end $$;
 
 set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
 set role authenticated;
-select public.assert_denied(
+do $do$ begin perform public.assert_denied(
   $q$select public.seed_default_categories('22222222-2222-2222-2222-222222222222')$q$,
-  'виклик seed_default_categories під authenticated відхилено');
-select public.assert_denied(
+  'виклик seed_default_categories під authenticated відхилено'); end $do$;
+do $do$ begin perform public.assert_denied(
   $q$select public.handle_new_user()$q$,
-  'виклик handle_new_user під authenticated відхилено');
+  'виклик handle_new_user під authenticated відхилено'); end $do$;
 reset role;
 
 set role anon;
-select public.assert_denied(
+do $do$ begin perform public.assert_denied(
   $q$select public.seed_default_categories('22222222-2222-2222-2222-222222222222')$q$,
-  'виклик seed_default_categories під anon відхилено');
-select public.assert_denied(
+  'виклик seed_default_categories під anon відхилено'); end $do$;
+do $do$ begin perform public.assert_denied(
   $q$select public.handle_new_user()$q$,
-  'виклик handle_new_user під anon відхилено');
+  'виклик handle_new_user під anon відхилено'); end $do$;
 reset role;
 
 \echo ''
@@ -239,18 +239,18 @@ end $$;
 
 -- with check у політиці — окрема від using половина: без неї можна було б
 -- дописати рядок у чужий акаунт, не бачачи його.
-select public.assert_denied(
+do $do$ begin perform public.assert_denied(
   $q$insert into public.transactions (user_id, kind, amount_cents)
      values ('22222222-2222-2222-2222-222222222222', 'expense', 100)$q$,
-  'insert у transactions з чужим user_id відхилено');
-select public.assert_denied(
+  'insert у transactions з чужим user_id відхилено'); end $do$;
+do $do$ begin perform public.assert_denied(
   $q$insert into public.documents (user_id, subject)
      values ('22222222-2222-2222-2222-222222222222', 'підкинутий')$q$,
-  'insert у documents з чужим user_id відхилено');
-select public.assert_denied(
+  'insert у documents з чужим user_id відхилено'); end $do$;
+do $do$ begin perform public.assert_denied(
   $q$insert into public.categories (user_id, name, slug)
      values ('22222222-2222-2222-2222-222222222222', 'Чуже', 'foreign')$q$,
-  'insert у categories з чужим user_id відхилено');
+  'insert у categories з чужим user_id відхилено'); end $do$;
 
 reset role;
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
@@ -286,10 +286,10 @@ begin
   perform public.assert(v_status, 'google_connection_status повертає стан попри закриту таблицю');
 end $$;
 
-select public.assert_denied(
+do $do$ begin perform public.assert_denied(
   $q$insert into public.google_credentials (user_id, refresh_token_enc)
      values ('11111111-1111-1111-1111-111111111111', 'enc:підміна')$q$,
-  'insert у google_credentials відхилено навіть для власного user_id');
+  'insert у google_credentials відхилено навіть для власного user_id'); end $do$;
 
 reset role;
 
@@ -431,6 +431,370 @@ begin
   perform public.assert(v_new is null, 'разове завдання не породжує наступного');
   perform public.assert(v_arch is not null, 'разове завдання теж потрапляє в архів');
   perform public.assert(v_children = 1, 'після закриття разового завдання копій не з’явилось');
+end $$;
+
+reset role;
+
+\echo ''
+\echo '--- 7. pay_subscription: витрата, архів платежу, наступна дата ---'
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+set role authenticated;
+
+do $$
+declare
+  v_cat uuid; v_sub uuid; v_tx uuid;
+  t public.transactions%rowtype;
+  p public.subscription_payments%rowtype;
+  v_next date; v_active boolean;
+begin
+  select id into v_cat from public.categories
+   where user_id = '11111111-1111-1111-1111-111111111111' and slug = 'subs';
+
+  insert into public.subscriptions (user_id, name, amount_cents, currency, category_id, recurrence, next_due_on)
+  values ('11111111-1111-1111-1111-111111111111', 'Netflix', 1799, 'EUR', v_cat, 'monthly', '2025-03-15')
+  returning id into v_sub;
+
+  v_tx := public.pay_subscription(v_sub, '2025-03-14');
+
+  select * into t from public.transactions where id = v_tx;
+  perform public.assert(t.id is not null, 'оплата підписки повертає id створеної операції');
+  perform public.assert(t.kind = 'expense', 'оплата підписки створює саме витрату');
+  perform public.assert(t.amount_cents = 1799, format('сума операції дорівнює сумі підписки (маємо %s)', t.amount_cents));
+  perform public.assert(t.currency = 'EUR', 'валюта операції взята з підписки');
+  perform public.assert(t.category_id = v_cat, 'категорія операції взята з підписки');
+  perform public.assert(t.merchant = 'Netflix', 'назва підписки лягає в merchant');
+  perform public.assert(t.occurred_on = date '2025-03-14', 'дата операції — день оплати, а не строк');
+  -- Джерело 'subscription' відрізняє автоматичні витрати від ручних:
+  -- без нього оплати неможливо відрізнити від того, що людина ввела сама.
+  perform public.assert(t.source = 'subscription', 'джерело операції — subscription');
+
+  select * into p from public.subscription_payments where subscription_id = v_sub;
+  perform public.assert(p.id is not null, 'платіж потрапив в архів subscription_payments');
+  perform public.assert(p.due_on = date '2025-03-15', 'в архіві збережено строк, який був на момент оплати');
+  perform public.assert(p.paid_on = date '2025-03-14', 'в архіві збережено день оплати');
+  perform public.assert(p.amount_cents = 1799, 'в архіві збережено суму');
+  perform public.assert(p.transaction_id = v_tx, 'архівний платіж посилається на створену операцію');
+
+  select next_due_on, active into v_next, v_active from public.subscriptions where id = v_sub;
+  perform public.assert(v_next = date '2025-04-15', format('monthly зсуває строк на місяць (маємо %s)', v_next));
+  perform public.assert(v_active, 'підписка лишається активною');
+end $$;
+
+do $$
+declare v_sub uuid; v_next date; v_active boolean; v_tx uuid;
+begin
+  insert into public.subscriptions (user_id, name, amount_cents, recurrence, next_due_on)
+  values ('11111111-1111-1111-1111-111111111111', 'Домен', 1200, 'yearly', '2025-03-15')
+  returning id into v_sub;
+  v_tx := public.pay_subscription(v_sub, '2025-03-15');
+  select next_due_on into v_next from public.subscriptions where id = v_sub;
+  perform public.assert(v_next = date '2026-03-15', format('yearly зсуває строк на рік (маємо %s)', v_next));
+
+  insert into public.subscriptions (user_id, name, amount_cents, recurrence, next_due_on)
+  values ('11111111-1111-1111-1111-111111111111', 'Страхування', 9000, 'quarterly', '2025-03-15')
+  returning id into v_sub;
+  v_tx := public.pay_subscription(v_sub, '2025-03-15');
+  select next_due_on into v_next from public.subscriptions where id = v_sub;
+  perform public.assert(v_next = date '2025-06-15', format('quarterly зсуває строк на 3 місяці (маємо %s)', v_next));
+
+  insert into public.subscriptions (user_id, name, amount_cents, recurrence, next_due_on)
+  values ('11111111-1111-1111-1111-111111111111', 'Спортзал', 2500, 'weekly', '2025-03-15')
+  returning id into v_sub;
+  v_tx := public.pay_subscription(v_sub, '2025-03-15');
+  select next_due_on into v_next from public.subscriptions where id = v_sub;
+  perform public.assert(v_next = date '2025-03-22', format('weekly зсуває строк на тиждень (маємо %s)', v_next));
+
+  -- Разовий рахунок не має наступного строку: його просто знімають
+  -- зі списку, інакше він щомісяця повертався б у «до сплати».
+  insert into public.subscriptions (user_id, name, amount_cents, recurrence, next_due_on)
+  values ('11111111-1111-1111-1111-111111111111', 'Рахунок за світло', 14300, 'once', '2025-03-15')
+  returning id into v_sub;
+  v_tx := public.pay_subscription(v_sub, '2025-03-15');
+  select next_due_on, active into v_next, v_active from public.subscriptions where id = v_sub;
+  perform public.assert(v_active = false, 'once після оплати стає неактивною');
+  perform public.assert(v_next = date '2025-03-15', 'once не зсуває строк');
+end $$;
+
+do $$
+declare v_sub uuid; v_tx uuid; v_amount bigint; v_sub_amount bigint;
+begin
+  -- Рахунок прийшов на іншу суму, ніж записано в підписці: платимо
+  -- фактичну, а сама підписка лишається з попередньою.
+  insert into public.subscriptions (user_id, name, amount_cents, recurrence, next_due_on)
+  values ('11111111-1111-1111-1111-111111111111', 'Комуналка', 8000, 'monthly', '2025-05-01')
+  returning id into v_sub;
+  v_tx := public.pay_subscription(v_sub, '2025-05-01', 9350);
+
+  select amount_cents into v_amount from public.transactions where id = v_tx;
+  select amount_cents into v_sub_amount from public.subscriptions where id = v_sub;
+  perform public.assert(v_amount = 9350, format('явна сума перекриває суму підписки (маємо %s)', v_amount));
+  perform public.assert(v_sub_amount = 8000, 'сама підписка при цьому не змінюється');
+end $$;
+
+reset role;
+
+\echo ''
+\echo '--- 8. search_documents ---'
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+set role authenticated;
+
+do $$
+declare v_ids uuid[]; v_cnt int;
+begin
+  select array_agg(id) into v_ids from public.search_documents('Zahlung');
+  perform public.assert(v_ids = array['d0c00001-0000-0000-0000-000000000001'::uuid],
+    format('слово з body_text знаходить свій документ і лише його (маємо %s)', v_ids));
+
+  select array_agg(id) into v_ids from public.search_documents('Mahnung');
+  perform public.assert(v_ids = array['d0c00002-0000-0000-0000-000000000002'::uuid],
+    'слово з subject знаходить документ');
+
+  -- Уривок номера справи: повнотекстовий індекс його не бачить, бо
+  -- 'AZ-2025/4471-B' розбирається на цілі токени. Знаходить лише ilike,
+  -- тому в search_documents і є друга гілка.
+  perform public.assert(
+    not (to_tsvector('simple', 'AZ-2025/4471-B') @@ websearch_to_tsquery('simple', '4471')),
+    'повнотекстовий пошук справді не знаходить уривок номера — гілка ilike не зайва');
+
+  select array_agg(id) into v_ids from public.search_documents('4471');
+  perform public.assert(v_ids = array['d0c00001-0000-0000-0000-000000000001'::uuid],
+    format('уривок reference_number знаходить документ (маємо %s)', v_ids));
+
+  -- keywords не входить у жодну ilike-гілку, отже це перевіряє саме
+  -- повнотекстовий вектор і те, що кирилиця в ньому токенізується.
+  select array_agg(id) into v_ids from public.search_documents('податкова');
+  perform public.assert(v_ids = array['d0c00001-0000-0000-0000-000000000001'::uuid],
+    format('українське ключове слово знаходить документ (маємо %s)', v_ids));
+
+  select count(*) into v_cnt from public.search_documents('');
+  perform public.assert(v_cnt = 4, format('порожній запит віддає всі свої документи (маємо %s)', v_cnt));
+
+  select count(*) into v_cnt from public.search_documents('Kindergeld');
+  perform public.assert(v_cnt = 0, 'запит без збігів нічого не вигадує');
+end $$;
+
+reset role;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+set role authenticated;
+
+-- У Б лежить документ із тим самим номером, тим самим словом у тексті
+-- і тим самим ключовим словом. Якби пошук не спирався на auth.uid(),
+-- сюди потрапили б чужі папери.
+do $$
+declare v_ids uuid[];
+begin
+  select array_agg(id) into v_ids from public.search_documents('4471');
+  perform public.assert(v_ids = array['d0c000b1-0000-0000-0000-0000000000b1'::uuid],
+    format('пошук по номеру не віддає чужий документ (маємо %s)', v_ids));
+
+  select array_agg(id) into v_ids from public.search_documents('Zahlung');
+  perform public.assert(v_ids = array['d0c000b1-0000-0000-0000-0000000000b1'::uuid],
+    'пошук по слову з тексту не віддає чужий документ');
+
+  select array_agg(id) into v_ids from public.search_documents('податкова');
+  perform public.assert(v_ids = array['d0c000b1-0000-0000-0000-0000000000b1'::uuid],
+    'пошук по ключовому слову не віддає чужий документ');
+end $$;
+
+reset role;
+
+\echo ''
+\echo '--- 9. document_folders ---'
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+set role authenticated;
+
+do $$
+declare v_rows int; v_distinct int; v_docs bigint; v_issuer text; v_last date;
+begin
+  select count(*), count(distinct issuer_slug) into v_rows, v_distinct from public.document_folders();
+  perform public.assert(v_rows = 3, format('у А три теки: finanzamt, jobcenter, _none (маємо %s)', v_rows));
+  -- Теки — це ще й імена каталогів в iCloud Drive: два рядки з однаковим
+  -- слагом означали б дві теки з одним іменем.
+  perform public.assert(v_rows = v_distinct, 'кожен слаг трапляється в переліку рівно раз');
+
+  select documents, issuer, last_document into v_docs, v_issuer, v_last
+    from public.document_folders() where issuer_slug = 'finanzamt';
+  perform public.assert(v_docs = 2,
+    format('«Finanzamt» і «FINANZAMT» злилися в одну теку з двома документами (маємо %s)', v_docs));
+  perform public.assert(v_issuer is not null and v_issuer <> 'Без адресата',
+    'тека з адресатом показує одне з його написань');
+  perform public.assert(v_last = date '2025-03-01', 'у теці видно дату найсвіжішого документа');
+
+  select documents, issuer into v_docs, v_issuer
+    from public.document_folders() where issuer_slug = '_none';
+  perform public.assert(v_docs = 1, format('документи без адресата зібрані під _none (маємо %s)', v_docs));
+  perform public.assert(v_issuer = 'Без адресата', 'тека _none підписана зрозуміло для людини');
+
+  select documents into v_docs from public.document_folders() where issuer_slug = 'jobcenter';
+  perform public.assert(v_docs = 1, 'окремий адресат лишається окремою текою');
+end $$;
+
+reset role;
+
+\echo ''
+\echo '--- 10. period_totals ---'
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+set role authenticated;
+
+do $$
+declare v_rows int; v_sum bigint; v_total bigint; v_entries bigint; v_name text;
+begin
+  select count(*), coalesce(sum(total_cents), 0) into v_rows, v_sum
+    from public.period_totals('2024-03-01', '2024-03-31', 'month');
+  perform public.assert(v_rows = 4, format('березень дає 4 рядки підсумків (маємо %s)', v_rows));
+  -- Сума зійдеться тільки якщо одночасно відкинуто непідтверджений скан,
+  -- квітневу витрату і витрату іншого користувача за той самий день.
+  perform public.assert(v_sum = 308500, format('сума за березень 308500 (маємо %s)', v_sum));
+
+  select total_cents, entries into v_total, v_entries
+    from public.period_totals('2024-03-01', '2024-03-31', 'month')
+   where kind = 'expense' and category_slug = 'groceries';
+  perform public.assert(v_total = 3500 and v_entries = 2,
+    format('продукти: 3500 за 2 операції (маємо %s за %s)', v_total, v_entries));
+  perform public.assert(
+    not exists (select 1 from public.period_totals('2024-03-01', '2024-03-31', 'month')
+                 where total_cents = 9999),
+    'операція з needs_review не потрапляє в підсумки');
+
+  select total_cents, category_name into v_total, v_name
+    from public.period_totals('2024-03-01', '2024-03-31', 'month')
+   where category_slug = 'uncategorised';
+  perform public.assert(v_total = 4300, format('витрата без категорії не губиться (маємо %s)', v_total));
+  perform public.assert(v_name = 'Без категорії', 'витрата без категорії підписана зрозуміло');
+
+  select total_cents into v_total
+    from public.period_totals('2024-03-01', '2024-03-31', 'month')
+   where kind = 'income' and category_slug = 'salary';
+  perform public.assert(v_total = 300000, 'доходи рахуються окремо від витрат');
+
+  perform public.assert(
+    (select bool_and(bucket = date '2024-03-01')
+       from public.period_totals('2024-03-01', '2024-03-31', 'month')),
+    'при кошику month усе зводиться до першого числа місяця');
+
+  -- Кошик має справді впливати на групування, а не бути прикрасою.
+  select count(*) into v_rows
+    from public.period_totals('2024-03-01', '2024-03-31', 'day')
+   where category_slug = 'groceries';
+  perform public.assert(v_rows = 2,
+    format('при кошику day ті самі продукти розпадаються на 2 дні (маємо %s)', v_rows));
+
+  select coalesce(sum(total_cents), 0) into v_sum
+    from public.period_totals('2024-03-06', '2024-03-07', 'month');
+  perform public.assert(v_sum = 3200, format('межі діапазону включні (маємо %s, чекали 3200)', v_sum));
+end $$;
+
+reset role;
+
+-- =====================================================================
+\echo '--- 11. Оплата простроченої підписки й межа місяця ---'
+-- =====================================================================
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+set role authenticated;
+
+do $$
+declare
+  v_user uuid := '11111111-1111-1111-1111-111111111111';
+  v_sub uuid; v_next date; v_day smallint;
+  v_tx_count integer; v_pay_count integer;
+begin
+  -- Підписка, яку забули відмічати понад рік.
+  insert into public.subscriptions (user_id, name, amount_cents, recurrence, next_due_on)
+  values (v_user, 'Прострочена', 1000, 'monthly', current_date - interval '19 months')
+  returning id into v_sub;
+
+  perform public.pay_subscription(v_sub, current_date);
+
+  select next_due_on into v_next from public.subscriptions where id = v_sub;
+  -- Без переносу наступний строк лишився б у минулому, і підписку
+  -- довелося б «оплатити» ще вісімнадцять разів, щоб вона наздогнала
+  -- сьогодні. Кожне натискання створювало б зайву витрату в обліку.
+  perform public.assert(v_next > current_date,
+    format('одна оплата виводить прострочену підписку в майбутнє (маємо %s)', v_next));
+
+  select count(*) into v_tx_count from public.transactions
+   where user_id = v_user and merchant = 'Прострочена';
+  select count(*) into v_pay_count from public.subscription_payments
+   where subscription_id = v_sub;
+
+  perform public.assert(v_tx_count = 1,
+    format('одна оплата створює рівно одну витрату (маємо %s)', v_tx_count));
+  perform public.assert(v_pay_count = 1,
+    format('одна оплата створює рівно один запис в архіві (маємо %s)', v_pay_count));
+
+  -- День списання лишається якорем і не з'їжджає разом із датою.
+  select billing_day into v_day from public.subscriptions where id = v_sub;
+  perform public.assert(v_day = extract(day from current_date - interval '19 months')::smallint,
+    format('день списання не змінився після оплати (маємо %s)', v_day));
+end $$;
+
+do $$
+declare
+  v_user uuid := '11111111-1111-1111-1111-111111111111';
+  v_sub uuid; v_next date;
+begin
+  -- Рахунок 31-го числа: лютий коротший, але це не привід з'їжджати назавжди.
+  insert into public.subscriptions (user_id, name, amount_cents, recurrence, next_due_on)
+  values (v_user, 'Оренда 31', 50000, 'monthly', '2025-01-31')
+  returning id into v_sub;
+
+  perform public.pay_subscription(v_sub, '2025-01-31');
+  select next_due_on into v_next from public.subscriptions where id = v_sub;
+  perform public.assert(v_next = date '2025-02-28',
+    format('31 січня переходить у 28 лютого (маємо %s)', v_next));
+
+  perform public.pay_subscription(v_sub, '2025-02-28');
+  select next_due_on into v_next from public.subscriptions where id = v_sub;
+  -- Найважливіше: з лютого повертаємось на 31-ше, а не лишаємось на 28-му.
+  perform public.assert(v_next = date '2025-03-31',
+    format('після лютого повертається на 31-ше, а не застрягає на 28-му (маємо %s)', v_next));
+
+  perform public.pay_subscription(v_sub, '2025-03-31');
+  select next_due_on into v_next from public.subscriptions where id = v_sub;
+  perform public.assert(v_next = date '2025-04-30',
+    format('квітень має 30 днів (маємо %s)', v_next));
+end $$;
+
+do $$
+declare
+  v_user uuid := '11111111-1111-1111-1111-111111111111';
+  v_sub uuid; v_day smallint;
+begin
+  insert into public.subscriptions (user_id, name, amount_cents, recurrence, next_due_on)
+  values (v_user, 'Якір дня', 100, 'monthly', '2025-06-17')
+  returning id into v_sub;
+
+  select billing_day into v_day from public.subscriptions where id = v_sub;
+  perform public.assert(v_day = 17,
+    format('день списання виставляється сам під час вставки (маємо %s)', v_day));
+end $$;
+
+do $$
+declare
+  v_user uuid := '11111111-1111-1111-1111-111111111111';
+  v_task uuid; v_first uuid; v_second uuid; v_count integer;
+begin
+  insert into public.tasks (user_id, title, due_on, repeat)
+  values (v_user, 'Подвійне натискання', current_date, 'daily')
+  returning id into v_task;
+
+  v_first := public.complete_task(v_task);
+  v_second := public.complete_task(v_task);
+
+  perform public.assert(v_first is not null, 'перше завершення створює наступний примірник');
+  -- Повторний виклик приходить від подвійного натискання, а не від наміру
+  -- завершити завдання вдруге: другий примірник був би сміттям у списку.
+  perform public.assert(v_second is null, 'повторне завершення не створює другий примірник');
+
+  select count(*) into v_count from public.tasks
+   where user_id = v_user and title = 'Подвійне натискання';
+  perform public.assert(v_count = 2,
+    format('після двох натискань лишається два рядки: завершений і наступний (маємо %s)', v_count));
 end $$;
 
 reset role;
