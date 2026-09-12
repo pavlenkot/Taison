@@ -1,6 +1,7 @@
 import { createClient, currentUser } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
 import { DriveConnect } from "@/components/DriveConnect";
+import { PushSetup } from "@/components/PushSetup";
 import { activeProvider, aiConfigured } from "@/lib/ai";
 import { googleConfigured } from "@/lib/google/tokens";
 import { encryptionConfigured } from "@/lib/crypto";
@@ -50,6 +51,7 @@ export default async function SettingsPage() {
   const usedShare = sync ? Math.min(100, (sync.stored_bytes / STORAGE_LIMIT_BYTES) * 100) : 0;
 
   const provider = activeProvider();
+  const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() ?? "";
   const ready = googleConfigured() && encryptionConfigured();
 
   return (
@@ -66,7 +68,7 @@ export default async function SettingsPage() {
             <div className="font-semibold text-warn">Синхронізацію не налаштовано</div>
             <p className="mt-1 text-muted">
               На сервері бракує <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code>{" "}
-              або <code>TOKEN_ENCRYPTION_KEY</code>. Порядок дій — у docs/GOOGLE.md.
+              або <code>TOKEN_ENCRYPTION_KEY</code>. Порядок дій — у docs/NOTIFICATIONS.md.
             </p>
           </div>
         ) : status?.connected ? (
@@ -193,6 +195,22 @@ export default async function SettingsPage() {
             </p>
           </div>
         )}
+      </section>
+
+      <section className="mb-5">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted">
+          Нагадування
+        </h2>
+        <div className="card">
+          {vapidKey ? (
+            <PushSetup vapidPublicKey={vapidKey} />
+          ) : (
+            <p className="text-sm text-muted">
+              Не налаштовано: на сервері бракує <code>NEXT_PUBLIC_VAPID_PUBLIC_KEY</code>.
+              Порядок дій — у docs/GOOGLE.md.
+            </p>
+          )}
+        </div>
       </section>
 
       <section className="mb-5">

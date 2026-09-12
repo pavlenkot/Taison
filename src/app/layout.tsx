@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { currentUser } from "@/lib/supabase/server";
 import { Nav } from "@/components/Nav";
+import { ServiceWorkerSetup } from "@/components/ServiceWorkerSetup";
 
 export const metadata: Metadata = {
   title: "Taison — особисті фінанси",
@@ -26,6 +27,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="uk">
       <body>
+        <ServiceWorkerSetup />
         {user ? (
           <div className="md:flex">
             <Nav email={user.email ?? ""} />

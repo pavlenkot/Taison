@@ -1,8 +1,25 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-/** Шляхи, доступні без входу. */
-const PUBLIC_PREFIXES = ["/login", "/auth", "/api/ingest", "/manifest.json", "/icon"];
+/**
+ * Шляхи, доступні без входу.
+ *
+ * Сюди входять не лише сторінки входу. Service worker браузер завантажує
+ * власним запитом без куків — завернутий на /login, він просто не
+ * зареєструється, і разом із ним помруть і офлайн, і сповіщення.
+ * Маршрути за розкладом і приймання сканів приходять із заголовком
+ * Authorization замість сесії й перевіряють себе самі.
+ */
+const PUBLIC_PREFIXES = [
+  "/login",
+  "/auth",
+  "/api/ingest",
+  "/api/cron",
+  "/manifest.json",
+  "/icon",
+  "/sw.js",
+  "/offline.html",
+];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });

@@ -880,3 +880,69 @@ begin
 end $$;
 
 reset role;
+
+-- =====================================================================
+\echo '--- 13. Підписки на сповіщення ---'
+-- =====================================================================
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+set role authenticated;
+
+do $$
+declare
+  v_a uuid := '11111111-1111-1111-1111-111111111111';
+  v_mine integer; v_failures smallint;
+begin
+  insert into public.push_subscriptions (user_id, endpoint, p256dh, auth)
+  values (v_a, 'https://push.example/a-phone', 'key-a', 'auth-a')
+  returning failures into v_failures;
+
+  perform public.assert(v_failures = 0,
+    format('лічильник відмов починається з нуля (маємо %s)', v_failures));
+
+  insert into public.push_subscriptions (user_id, endpoint, p256dh, auth)
+  values (v_a, 'https://push.example/a-laptop', 'key-b', 'auth-b');
+
+  select count(*) into v_mine from public.push_subscriptions;
+  perform public.assert(v_mine = 2,
+    format('два пристрої одного користувача живуть поруч (маємо %s)', v_mine));
+end $$;
+
+-- Повторна підписка з того самого пристрою має оновити запис, а не
+-- створити другий: інакше одне нагадування прийшло б двічі.
+do $$
+declare v_count integer; v_key text;
+begin
+  insert into public.push_subscriptions (user_id, endpoint, p256dh, auth)
+  values ('11111111-1111-1111-1111-111111111111', 'https://push.example/a-phone', 'key-new', 'auth-new')
+  on conflict (endpoint) do update
+    set p256dh = excluded.p256dh, auth = excluded.auth, failures = 0;
+
+  select count(*) into v_count from public.push_subscriptions
+   where endpoint = 'https://push.example/a-phone';
+  select p256dh into v_key from public.push_subscriptions
+   where endpoint = 'https://push.example/a-phone';
+
+  perform public.assert(v_count = 1,
+    format('повторна підписка не плодить дублів (маємо %s)', v_count));
+  perform public.assert(v_key = 'key-new', 'повторна підписка оновлює ключі');
+end $$;
+
+select public.assert_denied(
+  format($sql$insert into public.push_subscriptions (user_id, endpoint, p256dh, auth)
+               values (%L, 'https://push.example/stolen', 'k', 'a')$sql$,
+         '22222222-2222-2222-2222-222222222222'),
+  'підписка з чужим user_id відхиляється');
+
+do $$
+declare v_seen integer;
+begin
+  -- Чужі підписки не мають бути видні: у них ключі, якими можна
+  -- надсилати сповіщення на чужий пристрій.
+  set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+  select count(*) into v_seen from public.push_subscriptions;
+  perform public.assert(v_seen = 0,
+    format('чужих підписок не видно (маємо %s)', v_seen));
+end $$;
+
+reset role;
