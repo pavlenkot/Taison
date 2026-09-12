@@ -7,6 +7,7 @@ import { parseAmountToCents, isoDate } from "@/lib/format";
 import { slugify } from "@/lib/slug";
 import { disconnectGoogle } from "@/lib/google/tokens";
 import { prepareDrive as prepareDriveTree, uploadBackupToDrive } from "@/lib/google/sync";
+import { syncPendingToDrive } from "@/lib/google/backfill";
 import { buildBackupWorkbook } from "@/lib/backup";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -453,6 +454,14 @@ export async function createDriveFolders() {
   const { userId } = await client();
   await prepareDriveTree(userId);
   revalidatePath("/settings");
+}
+
+/** Довозить на Диск усе, що туди не доїхало під час сканування. */
+export async function retryDriveSync() {
+  const { supabase, userId } = await client();
+  await syncPendingToDrive(supabase, userId, 25);
+  revalidatePath("/settings");
+  revalidatePath("/");
 }
 
 export async function backupToDrive() {

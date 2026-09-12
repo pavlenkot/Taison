@@ -4,6 +4,8 @@ import { extractReceipt, extractDocument, aiConfigured, activeProvider } from "@
 import { persistDocument } from "@/lib/saveDocument";
 import { metadataSidecar } from "@/lib/ai/documentSchema";
 import { fileReceiptToDrive, fileDocumentToDrive } from "@/lib/google/sync";
+import { recordDriveOutcome } from "@/lib/google/backfill";
+import { receiptFileName } from "@/lib/fileNames";
 import { isoDate } from "@/lib/format";
 import { safeFileName } from "@/lib/slug";
 
@@ -149,6 +151,7 @@ export async function POST(request: Request) {
       );
 
       let drive: Awaited<ReturnType<typeof fileDocumentToDrive>> = null;
+      let driveError: string | null = null;
       try {
         drive = await fileDocumentToDrive(owner.id, {
           data: bytes,
@@ -157,9 +160,13 @@ export async function POST(request: Request) {
           folderName: filing.folder,
           fileName: filing.filename,
         });
-      } catch {
+      } catch (e) {
         // Диск — найкраще зусилля; скан уже збережено в застосунку.
+        // Але наслідок фіксуємо, інакше про розбіжність ніхто не дізнається.
+        driveError = e instanceof Error ? e.message : "Не вдалося покласти на Диск";
       }
+
+      await recordDriveOutcome(supabase, stored.id, drive?.file ?? null, driveError);
 
       if (drive) {
         await supabase
@@ -170,10 +177,6 @@ export async function POST(request: Request) {
             drive_meta_file_id: drive.meta?.id ?? null,
           })
           .eq("receipt_id", stored.id);
-        await supabase
-          .from("receipts")
-          .update({ drive_file_id: drive.file.id, drive_link: drive.file.link ?? null })
-          .eq("id", stored.id);
       }
 
       return NextResponse.json({
@@ -232,28 +235,23 @@ export async function POST(request: Request) {
   const occurredOn = receipt!.purchasedOn ?? isoDate();
 
   let receiptDrive: Awaited<ReturnType<typeof fileReceiptToDrive>> = null;
+  let receiptDriveError: string | null = null;
   try {
     receiptDrive = await fileReceiptToDrive(owner.id, {
       data: bytes,
       mimeType: mime,
-      fileName: safeFileName(
-        [occurredOn, receipt!.merchant ?? "Чек", euro !== "?" ? `${euro} EUR` : ""]
-          .filter((part) => part.length > 0)
-          .join(" · "),
-        110,
-      ),
+      fileName: receiptFileName({
+        occurredOn,
+        merchant: receipt!.merchant,
+        totalCents: receipt!.totalCents,
+      }),
       occurredOn,
     });
-  } catch {
-    // Те саме: скан уже в застосунку, Диск наздожене наступного разу.
+  } catch (e) {
+    receiptDriveError = e instanceof Error ? e.message : "Не вдалося покласти на Диск";
   }
 
-  if (receiptDrive) {
-    await supabase
-      .from("receipts")
-      .update({ drive_file_id: receiptDrive.id, drive_link: receiptDrive.link ?? null })
-      .eq("id", stored.id);
-  }
+  await recordDriveOutcome(supabase, stored.id, receiptDrive, receiptDriveError);
 
   return NextResponse.json({
     ok: true,

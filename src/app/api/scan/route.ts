@@ -4,7 +4,8 @@ import { extractReceipt, extractDocument, aiConfigured, activeProvider } from "@
 import { persistDocument } from "@/lib/saveDocument";
 import { metadataSidecar } from "@/lib/ai/documentSchema";
 import { fileReceiptToDrive, fileDocumentToDrive } from "@/lib/google/sync";
-import { safeFileName } from "@/lib/slug";
+import { recordDriveOutcome } from "@/lib/google/backfill";
+import { receiptFileName } from "@/lib/fileNames";
 import { isoDate } from "@/lib/format";
 
 export const maxDuration = 120;
@@ -135,6 +136,8 @@ export async function POST(request: Request) {
         driveError = e instanceof Error ? e.message : "Не вдалося покласти на Диск";
       }
 
+      await recordDriveOutcome(supabase, stored.id, drive?.file ?? null, driveError);
+
       if (drive) {
         await supabase
           .from("documents")
@@ -145,10 +148,6 @@ export async function POST(request: Request) {
             icloud_path: null,
           })
           .eq("id", id);
-        await supabase
-          .from("receipts")
-          .update({ drive_file_id: drive.file.id, drive_link: drive.file.link ?? null })
-          .eq("id", stored.id);
       }
 
       return NextResponse.json({
@@ -215,24 +214,18 @@ export async function POST(request: Request) {
     drive = await fileReceiptToDrive(user.id, {
       data: bytes,
       mimeType: body.mime,
-      fileName: safeFileName(
-        [occurredOn, receipt!.merchant ?? "Чек", euro ? `${euro} EUR` : ""]
-          .filter((part) => part.length > 0)
-          .join(" · "),
-        110,
-      ),
+      fileName: receiptFileName({
+        occurredOn,
+        merchant: receipt!.merchant,
+        totalCents: receipt!.totalCents,
+      }),
       occurredOn,
     });
   } catch (e) {
     driveError = e instanceof Error ? e.message : "Не вдалося покласти на Диск";
   }
 
-  if (drive) {
-    await supabase
-      .from("receipts")
-      .update({ drive_file_id: drive.id, drive_link: drive.link ?? null })
-      .eq("id", stored.id);
-  }
+  await recordDriveOutcome(supabase, stored.id, drive, driveError);
 
   return NextResponse.json({
     documentKind: "receipt",

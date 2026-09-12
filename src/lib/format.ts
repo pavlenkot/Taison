@@ -117,3 +117,13 @@ export function plural(count: number, one: string, few: string, many: string): s
   if (mod10 >= 2 && mod10 <= 4) return few;
   return many;
 }
+
+/** Розмір файлів людською мовою: 1,4 МБ замість 1468006. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} Б`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${Math.round(kb)} КБ`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb.toFixed(1).replace(".", ",")} МБ`;
+  return `${(mb / 1024).toFixed(2).replace(".", ",")} ГБ`;
+}

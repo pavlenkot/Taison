@@ -8,6 +8,7 @@ import {
   isoDate,
   validDate,
   plural,
+  formatBytes,
 } from "./format";
 
 /** Роздільник тисяч в українській локалі — нерозривний пробіл, не звичайний. */
@@ -140,5 +141,18 @@ describe("plural", () => {
     expect(word(13)).toBe("днів");
     expect(word(14)).toBe("днів");
     expect(word(111)).toBe("днів");
+  });
+});
+
+describe("formatBytes", () => {
+  it("показує розмір людською мовою", () => {
+    expect(formatBytes(512)).toBe("512 Б");
+    expect(formatBytes(2048)).toBe("2 КБ");
+    expect(formatBytes(1_572_864)).toBe("1,5 МБ");
+    expect(formatBytes(2_147_483_648)).toBe("2,00 ГБ");
+  });
+
+  it("ставить кому як десятковий роздільник, як і решта чисел", () => {
+    expect(formatBytes(1_572_864)).not.toContain(".");
   });
 });

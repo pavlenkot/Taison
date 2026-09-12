@@ -689,6 +689,49 @@ grant execute on function public.google_connection_status() to authenticated;
 -- Куди лягла копія файлу на Диску
 alter table public.receipts  add column if not exists drive_file_id text;
 alter table public.receipts  add column if not exists drive_link text;
+
+-- Стан другої копії. Раніше невдале вивантаження просто проковтувалося:
+-- у застосунку файл є, на Диску його немає, і дізнатися про це нізвідки.
+-- Тепер кожен скан знає, чи доїхав він до Диска.
+--   pending — ще не вивантажено
+--   synced  — лежить в обох місцях
+--   failed  — Диск відмовив, причина в drive_error
+--   skipped — Диск не підключено, і це не помилка
+alter table public.receipts add column if not exists drive_sync_status text
+  not null default 'pending'
+  check (drive_sync_status in ('pending', 'synced', 'failed', 'skipped'));
+alter table public.receipts add column if not exists drive_error text;
+alter table public.receipts add column if not exists drive_attempts smallint not null default 0;
+alter table public.receipts add column if not exists drive_synced_at timestamptz;
+
+-- Індекс лише по тому, що ще треба довезти: синхронізованих з часом
+-- стане багато, і вони в цьому запиті не потрібні.
+create index if not exists receipts_drive_pending_idx
+  on public.receipts (user_id, drive_sync_status)
+  where drive_sync_status <> 'synced';
 alter table public.documents add column if not exists drive_file_id text;
 alter table public.documents add column if not exists drive_link text;
 alter table public.documents add column if not exists drive_meta_file_id text;
+
+-- ---------------------------------------------------------------------
+-- Стан подвійного зберігання: скільки файлів у двох місцях, скільки
+-- чекає на Диск, і скільки місця зайнято в сховищі застосунку.
+-- ---------------------------------------------------------------------
+create or replace function public.drive_sync_summary()
+returns table (
+  synced        bigint,
+  pending       bigint,
+  failed        bigint,
+  skipped       bigint,
+  stored_bytes  bigint
+)
+language sql stable security invoker set search_path = public as $$
+  select
+    count(*) filter (where drive_sync_status = 'synced')::bigint,
+    count(*) filter (where drive_sync_status = 'pending')::bigint,
+    count(*) filter (where drive_sync_status = 'failed')::bigint,
+    count(*) filter (where drive_sync_status = 'skipped')::bigint,
+    coalesce(sum(byte_size), 0)::bigint
+  from public.receipts
+  where user_id = auth.uid();
+$$;

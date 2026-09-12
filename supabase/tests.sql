@@ -798,3 +798,85 @@ begin
 end $$;
 
 reset role;
+
+-- =====================================================================
+\echo '--- 12. Друга копія на Диску: стан і зведення ---'
+-- =====================================================================
+
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+set role authenticated;
+
+do $$
+declare
+  v_user uuid := '11111111-1111-1111-1111-111111111111';
+  v_status text;
+  v_attempts smallint;
+  v_before record;
+  v_after record;
+begin
+  -- Рахуємо приріст, а не абсолютні числа: у базі вже є дані з інших
+  -- розділів, і жорсткі очікування ламалися б від будь-якої правки вище.
+  select * into v_before from public.drive_sync_summary();
+
+  insert into public.receipts (user_id, kind, storage_path, byte_size)
+  values (v_user, 'receipt', v_user || '/new.pdf', 1000)
+  returning drive_sync_status, drive_attempts into v_status, v_attempts;
+
+  -- Новий скан ще нікуди не поїхав: поки він лише в застосунку.
+  perform public.assert(v_status = 'pending',
+    format('новий скан починає життя зі станом pending (маємо %s)', v_status));
+  perform public.assert(v_attempts = 0,
+    format('лічильник спроб починається з нуля (маємо %s)', v_attempts));
+
+  insert into public.receipts (user_id, kind, storage_path, byte_size, drive_sync_status)
+  values
+    (v_user, 'receipt', v_user || '/a.pdf', 2000, 'synced'),
+    (v_user, 'receipt', v_user || '/b.pdf', 3000, 'failed'),
+    (v_user, 'document', v_user || '/c.pdf', 4000, 'skipped');
+
+  select * into v_after from public.drive_sync_summary();
+
+  perform public.assert(v_after.synced - v_before.synced = 1,
+    format('зведення рахує синхронізовані (приріст %s)', v_after.synced - v_before.synced));
+  perform public.assert(v_after.pending - v_before.pending = 1,
+    format('зведення рахує ті, що чекають (приріст %s)', v_after.pending - v_before.pending));
+  perform public.assert(v_after.failed - v_before.failed = 1,
+    format('зведення рахує невдалі (приріст %s)', v_after.failed - v_before.failed));
+  -- skipped — це не помилка, а «Диск не підключено», і рахується окремо:
+  -- інакше людину лякало б попередження там, де вона нічого не обіцяла.
+  perform public.assert(v_after.skipped - v_before.skipped = 1,
+    format('зведення рахує пропущені окремо (приріст %s)', v_after.skipped - v_before.skipped));
+  perform public.assert(v_after.stored_bytes - v_before.stored_bytes = 10000,
+    format('зведення додає розміри файлів (приріст %s)', v_after.stored_bytes - v_before.stored_bytes));
+end $$;
+
+do $$
+declare v_mine bigint; v_total bigint;
+begin
+  select synced + pending + failed + skipped into v_mine from public.drive_sync_summary();
+  -- Зведення бачить лише свої файли: RLS тут не єдиний захист, у функції
+  -- стоїть явний фільтр за auth.uid().
+  select count(*) into v_total from public.receipts
+   where user_id = '11111111-1111-1111-1111-111111111111';
+  perform public.assert(v_mine = v_total,
+    format('зведення рахує рівно свої файли (маємо %s із %s)', v_mine, v_total));
+end $$;
+
+do $$
+declare v_code text;
+begin
+  -- Тут чекаємо саме порушення обмеження (23514), а не відмови в правах:
+  -- assert_denied перевіряє інший код і сказав би, що тест не пройшов,
+  -- хоча база повелася правильно.
+  begin
+    insert into public.receipts (user_id, kind, storage_path, drive_sync_status)
+    values ('11111111-1111-1111-1111-111111111111', 'receipt', 'x/y.pdf', 'вигаданий');
+    perform public.assert(false, 'вигаданий стан синхронізації мав бути відхилений');
+  exception when check_violation then
+    get stacked diagnostics v_code = returned_sqlstate;
+    perform public.assert(v_code = '23514',
+      format('вигаданий стан синхронізації відхиляється обмеженням (код %s)', v_code));
+  end;
+end $$;
+
+reset role;

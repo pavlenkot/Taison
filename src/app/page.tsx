@@ -85,7 +85,7 @@ export default async function Dashboard() {
   const lastMonth = resolvePeriod("month", -1);
   const lastWeek = resolvePeriod("week", -1);
 
-  const [{ data: seenRows }, monthCount, weekCount] = await Promise.all([
+  const [{ data: seenRows }, monthCount, weekCount, { data: syncRows }] = await Promise.all([
     supabase
       .from("digest_views")
       .select("period_kind, period_start")
@@ -104,7 +104,13 @@ export default async function Dashboard() {
       .eq("needs_review", false)
       .gte("occurred_on", lastWeek.from)
       .lte("occurred_on", lastWeek.to),
+    supabase.rpc("drive_sync_summary"),
   ]);
+
+  // Пропущені 'skipped' навмисно: якщо Диск не підключено, друга копія
+  // не обіцяна, і попереджати нема про що.
+  const sync = ((syncRows as { pending: number; failed: number }[]) ?? [])[0] ?? null;
+  const awaitingDrive = (sync?.pending ?? 0) + (sync?.failed ?? 0);
 
   const seen = new Set(
     ((seenRows as { period_kind: string; period_start: string }[]) ?? []).map(
@@ -130,6 +136,25 @@ export default async function Dashboard() {
         <h1 className="text-2xl font-bold tracking-tight">{greeting()}</h1>
         <p className="mt-0.5 text-sm text-muted">{month.label}</p>
       </header>
+
+      {awaitingDrive > 0 && (
+        <Link
+          href="/settings"
+          className="card mb-4 flex items-center gap-3 border-warn/40 bg-warn/5"
+        >
+          <span className="text-xl">☁️</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold">
+              {awaitingDrive} {plural(awaitingDrive, "файл", "файли", "файлів")}{" "}
+              {plural(awaitingDrive, "лежить", "лежать", "лежать")} лише в застосунку
+            </span>
+            <span className="block text-xs text-muted">
+              Копія на Google Диску не створена — відкрийте налаштування, щоб довезти
+            </span>
+          </span>
+          <span className="text-muted">›</span>
+        </Link>
+      )}
 
       {pendingDigest && (
         <Link

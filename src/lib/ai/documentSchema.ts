@@ -1,5 +1,6 @@
 import * as z from "zod/v4";
-import { slugify, safeFileName } from "../slug";
+import { slugify } from "../slug";
+import { documentFolderName, documentFileName } from "../fileNames";
 
 export const DOC_TYPES = [
   "government",
@@ -100,16 +101,13 @@ export function normalizeDocument(
   const reference = clean(parsed.reference_number);
   const documentDate = date(parsed.document_date);
 
-  const folderName = issuer ? safeFileName(issuer, 40) : "Без адресата";
-
-  // Ім'я файлу читається як картка документа: дата, від кого, про що, номер.
-  // Саме за ним документ знаходиться пошуком у Файлах без відкривання.
-  const fileName = safeFileName(
-    [documentDate ?? "", issuer ?? "", subject ?? "", reference ?? ""]
-      .filter((part) => part.length > 0)
-      .join(" · "),
-    110,
-  ) || "Документ";
+  const folderName = documentFolderName(issuer);
+  const fileName = documentFileName({
+    documentDate,
+    issuer,
+    subject,
+    referenceNumber: reference,
+  });
 
   return {
     docType: parsed.doc_type,

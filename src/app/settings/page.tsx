@@ -5,10 +5,27 @@ import { activeProvider, aiConfigured } from "@/lib/ai";
 import { googleConfigured } from "@/lib/google/tokens";
 import { encryptionConfigured } from "@/lib/crypto";
 import { folderLink } from "@/lib/google/drive";
-import { formatDate } from "@/lib/format";
-import { disconnectDrive, createDriveFolders, backupToDrive, signOut } from "../actions";
+import { formatDate, formatBytes } from "@/lib/format";
+import {
+  disconnectDrive,
+  createDriveFolders,
+  backupToDrive,
+  retryDriveSync,
+  signOut,
+} from "../actions";
 
 export const dynamic = "force-dynamic";
+
+interface SyncSummary {
+  synced: number;
+  pending: number;
+  failed: number;
+  skipped: number;
+  stored_bytes: number;
+}
+
+/** Безкоштовний тариф Supabase дає один гігабайт на файли. */
+const STORAGE_LIMIT_BYTES = 1024 * 1024 * 1024;
 
 interface Status {
   connected: boolean;
@@ -22,8 +39,15 @@ export default async function SettingsPage() {
   const user = await currentUser();
   const supabase = await createClient();
 
-  const { data } = await supabase.rpc("google_connection_status");
+  const [{ data }, { data: syncData }] = await Promise.all([
+    supabase.rpc("google_connection_status"),
+    supabase.rpc("drive_sync_summary"),
+  ]);
+
   const status = ((data as Status[]) ?? [])[0] ?? null;
+  const sync = ((syncData as SyncSummary[]) ?? [])[0] ?? null;
+  const awaiting = (sync?.pending ?? 0) + (sync?.failed ?? 0);
+  const usedShare = sync ? Math.min(100, (sync.stored_bytes / STORAGE_LIMIT_BYTES) * 100) : 0;
 
   const provider = activeProvider();
   const ready = googleConfigured() && encryptionConfigured();
@@ -86,7 +110,67 @@ export default async function SettingsPage() {
               </form>
             </div>
 
-            <p className="mt-2 text-xs text-muted">
+            {sync && (
+              <div className="mt-3 border-t border-line pt-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted">
+                  Дві копії файлів
+                </div>
+
+                <div className="mt-1.5 flex items-center gap-3 text-sm">
+                  <span className={awaiting > 0 ? "text-warn" : "text-positive"}>
+                    {awaiting > 0 ? "⚠" : "✓"}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    {awaiting > 0 ? (
+                      <>
+                        {sync.synced} у двох місцях, {awaiting} лише в застосунку
+                      </>
+                    ) : (
+                      <>Усі {sync.synced} файлів лежать і тут, і на Диску</>
+                    )}
+                  </span>
+                  {awaiting > 0 && (
+                    <form action={retryDriveSync}>
+                      <button type="submit" className="btn-ghost px-2.5 py-1.5 text-xs">
+                        Довезти
+                      </button>
+                    </form>
+                  )}
+                </div>
+
+                {sync.failed > 0 && (
+                  <p className="mt-1 text-xs text-negative">
+                    {sync.failed} не вдалося вивантажити — причина видно в журналі Vercel
+                  </p>
+                )}
+
+                <div className="mt-3 text-xs text-muted">
+                  Сховище застосунку: {formatBytes(sync.stored_bytes)} з 1 ГБ
+                </div>
+                <div
+                  className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-line"
+                  role="progressbar"
+                  aria-valuenow={Math.round(usedShare)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="Зайнято у сховищі застосунку"
+                >
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${Math.max(usedShare, 1)}%`,
+                      background: usedShare > 80 ? "rgb(var(--warn))" : "rgb(var(--series-1))",
+                    }}
+                  />
+                </div>
+                <p className="mt-1 text-xs text-muted">
+                  Копія на Диску місця тут не займає й не має обмеження
+                  безкоштовного тарифу.
+                </p>
+              </div>
+            )}
+
+            <p className="mt-3 text-xs text-muted">
               {status.last_backup_at
                 ? `Остання копія: ${formatDate(status.last_backup_at.slice(0, 10))}`
                 : "Копію ще не робили"}
