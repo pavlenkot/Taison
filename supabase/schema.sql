@@ -37,7 +37,7 @@ create table if not exists public.receipts (
   mime           text,
   byte_size      integer,
   icloud_path    text,                          -- заповнює Швидка команда iOS
-  ai_provider    text,                          -- claude | gemini
+  ai_provider    text,                          -- claude | gemini | openrouter
   ai_model       text,
   ai_raw         jsonb,                         -- повна відповідь моделі, як є
   created_at     timestamptz not null default now()
