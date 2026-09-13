@@ -2,12 +2,15 @@ import { NextResponse, type NextRequest } from "next/server";
 import ExcelJS from "exceljs";
 import { createClient } from "@/lib/supabase/server";
 import { resolvePeriod, type PeriodKind } from "@/lib/periods";
+import { getTransactions } from "@/lib/financialData";
+import { accountFilter, accountLabel } from "@/lib/financial";
 import { validDate } from "@/lib/format";
 import type { Transaction } from "@/lib/types";
 
 export const maxDuration = 60;
 
 const HEADERS = [
+  { header: "Фінансовий розділ", key: "account", width: 20 },
   { header: "Дата", key: "date", width: 12 },
   { header: "Тип", key: "kind", width: 10 },
   { header: "Категорія", key: "category", width: 22 },
@@ -44,7 +47,8 @@ export async function GET(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Потрібен вхід" }, { status: 401 });
+  if (!user)
+    return NextResponse.json({ error: "Потрібен вхід" }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
   const format = searchParams.get("format") === "csv" ? "csv" : "xlsx";
@@ -58,22 +62,39 @@ export async function GET(request: NextRequest) {
     ? resolvePeriod(periodKind, offset)
     : resolvePeriod("year", 0);
 
-  const custom = explicitFrom !== null && explicitTo !== null && explicitFrom <= explicitTo;
+  const custom =
+    explicitFrom !== null && explicitTo !== null && explicitFrom <= explicitTo;
   const from = custom ? explicitFrom : period.from;
   const to = custom ? explicitTo : period.to;
 
-  const { data, error } = await supabase
-    .from("transactions")
-    .select("*, categories (name)")
-    .eq("needs_review", false)
-    .gte("occurred_on", from)
-    .lte("occurred_on", to)
-    .order("occurred_on", { ascending: true })
-    .order("created_at", { ascending: true });
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const accountValue = searchParams.get("account");
+  if (
+    accountValue &&
+    !["online", "cash", "gewerbe", "unassigned"].includes(accountValue)
+  )
+    return NextResponse.json(
+      { error: "Невідомий фінансовий розділ" },
+      { status: 400 },
+    );
+  let data: Transaction[];
+  try {
+    data = await getTransactions({
+      from,
+      to,
+      account: accountValue ? accountFilter(accountValue) : undefined,
+      kind: searchParams.get("kind") ?? undefined,
+      category: searchParams.get("category") ?? undefined,
+      search: searchParams.get("q") ?? undefined,
+    });
+  } catch {
+    return NextResponse.json(
+      { error: "Не вдалося підготувати експорт" },
+      { status: 500 },
+    );
+  }
 
   const rows = ((data as Transaction[]) ?? []).map((t) => ({
+    account: accountLabel(t.financial_account),
     date: t.occurred_on,
     kind: t.kind === "income" ? "Дохід" : "Витрата",
     category: t.categories?.name ?? "Без категорії",
@@ -94,6 +115,7 @@ export async function GET(request: NextRequest) {
     for (const r of rows) {
       lines.push(
         [
+          r.account,
           r.date,
           r.kind,
           // Захист від формул — лише для тексту, що прийшов від користувача.
@@ -151,7 +173,7 @@ export async function GET(request: NextRequest) {
 
   sheet.getColumn("amount").numFmt = '#,##0.00 "€"';
   sheet.getColumn("date").numFmt = "yyyy-mm-dd";
-  sheet.autoFilter = { from: "A1", to: "H1" };
+  sheet.autoFilter = { from: "A1", to: "I1" };
 
   // Підсумковий аркуш: скільки й на що пішло за період
   const summary = workbook.addWorksheet("Підсумок");
@@ -163,9 +185,16 @@ export async function GET(request: NextRequest) {
   ];
   summary.getRow(1).font = { bold: true };
 
-  const byCategory = new Map<string, { count: number; expense: number; income: number }>();
+  const byCategory = new Map<
+    string,
+    { count: number; expense: number; income: number }
+  >();
   for (const r of rows) {
-    const cur = byCategory.get(r.category) ?? { count: 0, expense: 0, income: 0 };
+    const cur = byCategory.get(r.category) ?? {
+      count: 0,
+      expense: 0,
+      income: 0,
+    };
     cur.count += 1;
     if (r.amount < 0) cur.expense += -r.amount;
     else cur.income += r.amount;
@@ -183,8 +212,12 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const totalExpense = rows.filter((r) => r.amount < 0).reduce((s, r) => s - r.amount, 0);
-  const totalIncome = rows.filter((r) => r.amount > 0).reduce((s, r) => s + r.amount, 0);
+  const totalExpense = rows
+    .filter((r) => r.amount < 0)
+    .reduce((s, r) => s - r.amount, 0);
+  const totalIncome = rows
+    .filter((r) => r.amount > 0)
+    .reduce((s, r) => s + r.amount, 0);
 
   summary.addRow({});
   const totalRow = summary.addRow({

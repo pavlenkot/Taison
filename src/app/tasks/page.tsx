@@ -1,3 +1,5 @@
+import { ActionForm } from "@/components/ActionForm";
+import { DateField } from "@/components/Calendar";
 import { createClient } from "@/lib/supabase/server";
 import { isoDate } from "@/lib/format";
 import { REPEAT_LABELS, type Task, type TaskRepeat } from "@/lib/types";
@@ -24,18 +26,27 @@ export default async function TasksPage() {
 
   return (
     <>
-      <PageHeader title="Щоденні завдання" subtitle={`${tasks.length} активних`} />
+      <PageHeader title="Завдання" subtitle={`${tasks.length} активних`} />
 
       <AddPanel label="Нове завдання">
-        <form action={addTask}>
+        <ActionForm action={addTask}>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="label">Що зробити</label>
-              <input name="title" required placeholder="Наприклад, оплатити інтернет" className="field" />
+              <input
+                name="title"
+                required
+                placeholder="Наприклад, оплатити інтернет"
+                className="field"
+              />
             </div>
             <div>
               <label className="label">Дата</label>
-              <input name="due_on" type="date" defaultValue={today} className="field" />
+              <DateField
+                name="due_on"
+                defaultValue={today}
+                label="Дата завдання"
+              />
             </div>
             <div>
               <label className="label">Повтор</label>
@@ -55,11 +66,14 @@ export default async function TasksPage() {
           <button type="submit" className="btn-primary mt-4 w-full sm:w-auto">
             Додати
           </button>
-        </form>
+        </ActionForm>
       </AddPanel>
 
       {tasks.length === 0 ? (
-        <Empty icon="✓" text="Активних завдань немає. Виконані лежать в архіві." />
+        <Empty
+          icon="✓"
+          text="Активних завдань немає. Виконані лежать в архіві."
+        />
       ) : (
         <div className="space-y-5">
           {overdue.length > 0 && (

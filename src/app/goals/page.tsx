@@ -1,5 +1,14 @@
+import { Sheet } from "@/components/Sheet";
+import { ActionForm, ConfirmAction } from "@/components/ActionForm";
+import { DateField } from "@/components/Calendar";
+import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
-import { formatMoney, formatDate, describeDueDate, isoDate } from "@/lib/format";
+import {
+  formatMoney,
+  formatDate,
+  describeDueDate,
+  isoDate,
+} from "@/lib/format";
 import type { Goal, GoalContribution } from "@/lib/types";
 import { PageHeader, AddPanel, Empty } from "@/components/ui";
 import { addGoal, addContribution, completeGoal, deleteGoal } from "../actions";
@@ -9,16 +18,24 @@ export const dynamic = "force-dynamic";
 export default async function GoalsPage() {
   const supabase = await createClient();
   const [{ data: goalRows }, { data: contribRows }] = await Promise.all([
-    supabase.from("goals").select("*").eq("status", "active").order("created_at"),
+    supabase
+      .from("goals")
+      .select("*")
+      .eq("status", "active")
+      .order("created_at"),
     supabase.from("goal_contributions").select("goal_id, amount_cents"),
   ]);
 
   const goals = (goalRows as Goal[]) ?? [];
-  const contributions = (contribRows as Pick<GoalContribution, "goal_id" | "amount_cents">[]) ?? [];
+  const contributions =
+    (contribRows as Pick<GoalContribution, "goal_id" | "amount_cents">[]) ?? [];
 
   const savedByGoal = new Map<string, number>();
   for (const c of contributions) {
-    savedByGoal.set(c.goal_id, (savedByGoal.get(c.goal_id) ?? 0) + c.amount_cents);
+    savedByGoal.set(
+      c.goal_id,
+      (savedByGoal.get(c.goal_id) ?? 0) + c.amount_cents,
+    );
   }
 
   return (
@@ -26,7 +43,7 @@ export default async function GoalsPage() {
       <PageHeader title="Цілі" subtitle={`${goals.length} активних`} />
 
       <AddPanel label="Нова ціль">
-        <form action={addGoal}>
+        <ActionForm action={addGoal}>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="label">Назва</label>
@@ -48,7 +65,7 @@ export default async function GoalsPage() {
             </div>
             <div>
               <label className="label">Дедлайн (необов'язково)</label>
-              <input name="due_on" type="date" className="field" />
+              <DateField name="due_on" label="Строк цілі" />
             </div>
             <div className="sm:col-span-2">
               <label className="label">Нотатка</label>
@@ -58,7 +75,7 @@ export default async function GoalsPage() {
           <button type="submit" className="btn-primary mt-4 w-full sm:w-auto">
             Створити
           </button>
-        </form>
+        </ActionForm>
       </AddPanel>
 
       {goals.length === 0 ? (
@@ -76,8 +93,15 @@ export default async function GoalsPage() {
               <li key={g.id} className="card">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="font-semibold">{g.title}</div>
-                    {g.notes && <div className="text-xs text-muted">{g.notes}</div>}
+                    <div className="flex items-center gap-3">
+                      <span className="icon-circle">
+                        <Icon name="goals" />
+                      </span>
+                      <span className="font-semibold">{g.title}</span>
+                    </div>
+                    {g.notes && (
+                      <div className="text-xs text-muted">{g.notes}</div>
+                    )}
                     {due && (
                       <div
                         className={`text-xs ${
@@ -92,14 +116,18 @@ export default async function GoalsPage() {
                       </div>
                     )}
                   </div>
-                  {g.target_cents && (
+                  {
                     <div className="shrink-0 text-right">
-                      <div className="font-bold tabular-nums">{formatMoney(saved)}</div>
+                      <div className="font-bold tabular-nums">
+                        {formatMoney(saved)}
+                      </div>
                       <div className="text-xs text-muted tabular-nums">
-                        з {formatMoney(g.target_cents)}
+                        {g.target_cents
+                          ? "з " + formatMoney(g.target_cents)
+                          : "Накопичено"}
                       </div>
                     </div>
-                  )}
+                  }
                 </div>
 
                 {pct !== null && (
@@ -117,42 +145,63 @@ export default async function GoalsPage() {
                         style={{ width: `${pct}%` }}
                       />
                     </div>
-                    <div className="mt-1 text-right text-xs text-muted tabular-nums">{pct}%</div>
+                    <div className="mt-1 text-right text-xs text-muted tabular-nums">
+                      {pct}%
+                    </div>
                   </div>
                 )}
 
                 <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-line pt-3">
-                  <form action={addContribution} className="flex flex-1 items-end gap-2">
-                    <input type="hidden" name="goal_id" value={g.id} />
-                    <input type="hidden" name="made_on" value={isoDate()} />
-                    <div className="min-w-0 flex-1">
-                      <label className="label">Поповнити на, €</label>
-                      <input
-                        name="amount"
-                        required
-                        inputMode="decimal"
-                        placeholder="0,00"
-                        className="field tabular-nums"
-                      />
-                    </div>
-                    <button type="submit" className="btn-ghost">
-                      Додати
-                    </button>
-                  </form>
+                  <Sheet
+                    title="Поповнити ціль"
+                    trigger="Поповнити"
+                    icon="goals"
+                  >
+                    <ActionForm action={addContribution}>
+                      <input type="hidden" name="goal_id" value={g.id} />
+                      <p className="mb-4 text-muted">{g.title}</p>
+                      <div className="min-w-0 flex-1">
+                        <label className="label">Поповнити на, €</label>
+                        <input
+                          name="amount"
+                          required
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          className="field tabular-nums"
+                        />
+                      </div>
+                      <div className="mt-3">
+                        <label className="label">Дата поповнення</label>
+                        <DateField
+                          name="made_on"
+                          label="Дата поповнення"
+                          defaultValue={isoDate()}
+                          required
+                        />
+                      </div>
+                      <div className="mt-3">
+                        <label className="label">Нотатка</label>
+                        <input name="note" className="field" />
+                      </div>
+                      <button type="submit" className="btn-primary mt-4 w-full">
+                        Додати
+                      </button>
+                    </ActionForm>
+                  </Sheet>
 
-                  <form action={completeGoal}>
+                  <ActionForm action={completeGoal}>
                     <input type="hidden" name="id" value={g.id} />
                     <button type="submit" className="btn-ghost text-positive">
                       Готово
                     </button>
-                  </form>
+                  </ActionForm>
 
-                  <form action={deleteGoal}>
-                    <input type="hidden" name="id" value={g.id} />
-                    <button type="submit" className="btn-ghost text-negative">
-                      Видалити
-                    </button>
-                  </form>
+                  <ConfirmAction
+                    action={deleteGoal}
+                    id={g.id}
+                    title="Видалити ціль?"
+                    consequence="Ціль і записи її поповнення буде видалено. Операції у фінансових розділах залишаться без змін."
+                  />
                 </div>
               </li>
             );

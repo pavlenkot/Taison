@@ -3,10 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { parseAmountToCents, isoDate } from "@/lib/format";
+import { parseAmountToCents, isoDate, validDate } from "@/lib/format";
+import { formAccount } from "@/lib/financial";
 import { slugify } from "@/lib/slug";
 import { disconnectGoogle } from "@/lib/google/tokens";
-import { prepareDrive as prepareDriveTree, uploadBackupToDrive } from "@/lib/google/sync";
+import {
+  prepareDrive as prepareDriveTree,
+  uploadBackupToDrive,
+} from "@/lib/google/sync";
 import { syncPendingToDrive } from "@/lib/google/backfill";
 import { buildBackupWorkbook } from "@/lib/backup";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -57,10 +61,13 @@ export async function addTransaction(form: FormData) {
     note: optional(form, "note"),
     occurred_on: str(form, "occurred_on") || isoDate(),
     source: "manual",
+    financial_account: formAccount(form.get("financial_account")),
   });
   fail("Не вдалося зберегти операцію", error);
 
   revalidatePath("/transactions");
+  revalidatePath("/analytics");
+  revalidatePath("/digest");
   revalidatePath("/");
 }
 
@@ -78,21 +85,29 @@ export async function updateTransaction(form: FormData) {
       note: optional(form, "note"),
       occurred_on: str(form, "occurred_on") || isoDate(),
       needs_review: false,
+      financial_account: formAccount(form.get("financial_account")),
     })
     .eq("id", id);
   fail("Не вдалося оновити операцію", error);
 
   revalidatePath("/transactions");
+  revalidatePath("/analytics");
+  revalidatePath("/digest");
   revalidatePath("/scan");
   revalidatePath("/");
 }
 
 export async function deleteTransaction(form: FormData) {
   const { supabase } = await client();
-  const { error } = await supabase.from("transactions").delete().eq("id", str(form, "id"));
+  const { error } = await supabase
+    .from("transactions")
+    .delete()
+    .eq("id", str(form, "id"));
   fail("Не вдалося видалити операцію", error);
 
   revalidatePath("/transactions");
+  revalidatePath("/analytics");
+  revalidatePath("/digest");
   revalidatePath("/");
 }
 
@@ -107,6 +122,7 @@ export async function addSubscription(form: FormData) {
     amount_cents: amount(form),
     category_id: optional(form, "category_id"),
     recurrence: str(form, "recurrence") || "monthly",
+    financial_account: formAccount(form.get("financial_account")),
     next_due_on: str(form, "next_due_on") || isoDate(),
     notes: optional(form, "notes"),
   });
@@ -128,6 +144,7 @@ export async function updateSubscription(form: FormData) {
       amount_cents: amount(form),
       category_id: optional(form, "category_id"),
       recurrence: str(form, "recurrence") || "monthly",
+      financial_account: formAccount(form.get("financial_account")),
       next_due_on: nextDue,
       // Користувач змінив дату вручну — отже, переставив і день списання.
       // Оплата підписки день не чіпає, там він лишається якорем.
@@ -154,13 +171,18 @@ export async function paySubscription(form: FormData) {
 
   revalidatePath("/subscriptions");
   revalidatePath("/transactions");
+  revalidatePath("/analytics");
+  revalidatePath("/digest");
   revalidatePath("/archive");
   revalidatePath("/");
 }
 
 export async function deleteSubscription(form: FormData) {
   const { supabase } = await client();
-  const { error } = await supabase.from("subscriptions").delete().eq("id", str(form, "id"));
+  const { error } = await supabase
+    .from("subscriptions")
+    .delete()
+    .eq("id", str(form, "id"));
   fail("Не вдалося видалити підписку", error);
 
   revalidatePath("/subscriptions");
@@ -216,7 +238,10 @@ export async function completeGoal(form: FormData) {
 
 export async function deleteGoal(form: FormData) {
   const { supabase } = await client();
-  const { error } = await supabase.from("goals").delete().eq("id", str(form, "id"));
+  const { error } = await supabase
+    .from("goals")
+    .delete()
+    .eq("id", str(form, "id"));
   fail("Не вдалося видалити ціль", error);
 
   revalidatePath("/goals");
@@ -242,7 +267,9 @@ export async function addTask(form: FormData) {
 
 export async function completeTask(form: FormData) {
   const { supabase } = await client();
-  const { error } = await supabase.rpc("complete_task", { p_task_id: str(form, "id") });
+  const { error } = await supabase.rpc("complete_task", {
+    p_task_id: str(form, "id"),
+  });
   fail("Не вдалося завершити завдання", error);
 
   revalidatePath("/tasks");
@@ -267,7 +294,10 @@ export async function reopenTask(form: FormData) {
 
 export async function deleteTask(form: FormData) {
   const { supabase } = await client();
-  const { error } = await supabase.from("tasks").delete().eq("id", str(form, "id"));
+  const { error } = await supabase
+    .from("tasks")
+    .delete()
+    .eq("id", str(form, "id"));
   fail("Не вдалося видалити завдання", error);
 
   revalidatePath("/tasks");
@@ -310,7 +340,12 @@ export async function addCategory(form: FormData) {
   fail("Не вдалося створити категорію", error);
 
   revalidatePath("/categories");
+  revalidatePath("/");
+  revalidatePath("/scan");
+  revalidatePath("/subscriptions");
   revalidatePath("/transactions");
+  revalidatePath("/analytics");
+  revalidatePath("/digest");
 }
 
 export async function updateCategory(form: FormData) {
@@ -328,7 +363,12 @@ export async function updateCategory(form: FormData) {
   fail("Не вдалося оновити категорію", error);
 
   revalidatePath("/categories");
+  revalidatePath("/");
+  revalidatePath("/scan");
+  revalidatePath("/subscriptions");
   revalidatePath("/transactions");
+  revalidatePath("/analytics");
+  revalidatePath("/digest");
 }
 
 /** Перемикач видимості окремою дією — щоб ховати в один дотик зі списку. */
@@ -342,16 +382,29 @@ export async function toggleCategoryHidden(form: FormData) {
   fail("Не вдалося змінити категорію", error);
 
   revalidatePath("/categories");
+  revalidatePath("/");
+  revalidatePath("/scan");
+  revalidatePath("/subscriptions");
   revalidatePath("/transactions");
+  revalidatePath("/analytics");
+  revalidatePath("/digest");
 }
 
 export async function deleteCategory(form: FormData) {
   const { supabase } = await client();
-  const { error } = await supabase.from("categories").delete().eq("id", str(form, "id"));
+  const { error } = await supabase
+    .from("categories")
+    .delete()
+    .eq("id", str(form, "id"));
   fail("Не вдалося видалити категорію", error);
 
   revalidatePath("/categories");
+  revalidatePath("/");
+  revalidatePath("/scan");
+  revalidatePath("/subscriptions");
   revalidatePath("/transactions");
+  revalidatePath("/analytics");
+  revalidatePath("/digest");
 }
 
 // -------------------------------------------------------------- підсумки
@@ -405,6 +458,7 @@ export async function updateDocument(form: FormData) {
   fail("Не вдалося оновити документ", error);
 
   revalidatePath("/documents");
+  revalidatePath(`/documents/${str(form, "id")}`);
 }
 
 export async function deleteDocument(form: FormData) {
@@ -420,8 +474,9 @@ export async function deleteDocument(form: FormData) {
     .eq("id", id)
     .maybeSingle();
 
-  const storagePath = (doc as { receipts?: { storage_path: string } | null } | null)?.receipts
-    ?.storage_path;
+  const storagePath = (
+    doc as { receipts?: { storage_path: string } | null } | null
+  )?.receipts?.storage_path;
 
   const { error } = await supabase.from("documents").delete().eq("id", id);
   fail("Не вдалося видалити документ", error);
@@ -473,7 +528,8 @@ export async function backupToDrive() {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
   const uploaded = await uploadBackupToDrive(userId, {
     name: `taison-${stamp}.xlsx`,
-    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     data: buffer,
   });
 
@@ -491,9 +547,26 @@ export async function backupToDrive() {
 
 // ------------------------------------------------------------------ інше
 
-
 export async function signOut() {
   const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/login");
+}
+
+export async function saveInvestment(form: FormData) {
+  const { supabase, userId } = await client();
+  const month = validDate(str(form, "month") + "-01");
+  const cents = parseAmountToCents(str(form, "amount"));
+  if (!month) throw new Error("Оберіть місяць");
+  if (cents === null || cents < 0 || !Number.isSafeInteger(cents))
+    throw new Error("Вкажіть коректну суму");
+  const { error } = await supabase
+    .from("monthly_investments")
+    .upsert(
+      { user_id: userId, month, amount_cents: cents },
+      { onConflict: "user_id,month" },
+    );
+  fail("Не вдалося зберегти інвестиції", error);
+  revalidatePath("/");
+  revalidatePath("/settings");
 }

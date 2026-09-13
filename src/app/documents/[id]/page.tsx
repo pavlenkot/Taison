@@ -1,9 +1,21 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { formatDate, formatMoney, describeDueDate, centsToInput } from "@/lib/format";
-import { DOC_TYPE_LABELS, DOC_TYPES, type DocType } from "@/lib/ai/documentSchema";
+import {
+  formatDate,
+  formatMoney,
+  describeDueDate,
+  centsToInput,
+} from "@/lib/format";
+import {
+  DOC_TYPE_LABELS,
+  DOC_TYPES,
+  type DocType,
+} from "@/lib/ai/documentSchema";
 import type { Document } from "@/lib/types";
+import { Sheet } from "@/components/Sheet";
+import { ActionForm, ConfirmAction } from "@/components/ActionForm";
+import { DateField } from "@/components/Calendar";
 import { PageHeader } from "@/components/ui";
 import { updateDocument, deleteDocument } from "../../actions";
 
@@ -19,7 +31,11 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-export default async function DocumentPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function DocumentPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = await params;
   const supabase = await createClient();
 
@@ -46,8 +62,16 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
 
       <PageHeader
         title={doc.subject ?? doc.issuer ?? "Документ"}
-        subtitle={`${label.icon} ${label.title}${doc.issuer ? ` · ${doc.issuer}` : ""}`}
+        subtitle={`${label.title}${doc.issuer ? ` · ${doc.issuer}` : ""}`}
       />
+
+      <section className="card mb-4">
+        <h2>Короткий зміст</h2>
+        <p className="mt-3 text-muted leading-relaxed">
+          {doc.summary ??
+            "Для цього документа короткий зміст ще не збережено. Повний текст доступний нижче."}
+        </p>
+      </section>
 
       {due && (
         <div
@@ -61,10 +85,27 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
         >
           <div className="text-sm font-semibold">
             Строк: {due.label}
-            <span className="ml-2 font-normal text-muted">{formatDate(doc.deadline!)}</span>
+            <span className="ml-2 font-normal text-muted">
+              {formatDate(doc.deadline!)}
+            </span>
           </div>
         </div>
       )}
+
+      <div className="card mb-4">
+        <Row label="Від кого" value={doc.issuer} />
+        <Row label="Категорія" value={label.title} />
+        <Row
+          label="Дата документа"
+          value={doc.document_date ? formatDate(doc.document_date) : null}
+        />
+        <Row label="Номер справи" value={doc.reference_number} />
+        <Row
+          label="Сума"
+          value={doc.amount_cents ? formatMoney(doc.amount_cents) : null}
+        />
+        <Row label="Мова" value={doc.language} />
+      </div>
 
       <div className="mb-4 flex flex-wrap gap-2">
         {doc.receipt_id && (
@@ -82,16 +123,6 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
         </a>
       </div>
 
-      <div className="card mb-4">
-        <Row label="Від кого" value={doc.issuer} />
-        <Row label="Категорія" value={`${label.icon} ${label.title}`} />
-        <Row label="Дата документа" value={doc.document_date ? formatDate(doc.document_date) : null} />
-        <Row label="Номер справи" value={doc.reference_number} />
-        <Row label="Сума" value={doc.amount_cents ? formatMoney(doc.amount_cents) : null} />
-        <Row label="Мова" value={doc.language} />
-        <Row label="Тека в iCloud" value={doc.icloud_path} />
-      </div>
-
       {doc.keywords.length > 0 && (
         <section className="mb-4">
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted">
@@ -99,7 +130,11 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
           </h2>
           <div className="flex flex-wrap gap-1.5">
             {doc.keywords.map((word) => (
-              <Link key={word} href={`/documents?q=${encodeURIComponent(word)}`} className="chip text-muted">
+              <Link
+                key={word}
+                href={`/documents?q=${encodeURIComponent(word)}`}
+                className="chip text-muted"
+              >
                 {word}
               </Link>
             ))}
@@ -118,29 +153,41 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
         </details>
       )}
 
-      <details className="card">
-        <summary className="cursor-pointer list-none text-sm font-semibold text-accent marker:content-none">
-          Виправити дані
-        </summary>
-
-        <form action={updateDocument} className="mt-4 border-t border-line pt-4">
+      <Sheet
+        title="Виправити дані"
+        className="btn-ghost"
+        trigger="Виправити дані"
+        icon="documents"
+      >
+        <ActionForm
+          action={updateDocument}
+          className="mt-4 border-t border-line pt-4"
+        >
           <input type="hidden" name="id" value={doc.id} />
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="label">Про що документ</label>
-              <input name="subject" defaultValue={doc.subject ?? ""} className="field" />
+              <input
+                name="subject"
+                defaultValue={doc.subject ?? ""}
+                className="field"
+              />
             </div>
             <div>
               <label className="label">Від кого</label>
-              <input name="issuer" defaultValue={doc.issuer ?? ""} className="field" />
+              <input
+                name="issuer"
+                defaultValue={doc.issuer ?? ""}
+                className="field"
+              />
             </div>
             <div>
               <label className="label">Категорія</label>
               <select name="doc_type" defaultValue={type} className="field">
                 {DOC_TYPES.map((t) => (
                   <option key={t} value={t}>
-                    {DOC_TYPE_LABELS[t].icon} {DOC_TYPE_LABELS[t].title}
+                    {DOC_TYPE_LABELS[t].title}
                   </option>
                 ))}
               </select>
@@ -158,7 +205,9 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
               <input
                 name="amount"
                 inputMode="decimal"
-                defaultValue={doc.amount_cents ? centsToInput(doc.amount_cents) : ""}
+                defaultValue={
+                  doc.amount_cents ? centsToInput(doc.amount_cents) : ""
+                }
                 className="field tabular-nums"
               />
             </div>
@@ -173,11 +222,19 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
             </div>
             <div>
               <label className="label">Строк</label>
-              <input name="deadline" type="date" defaultValue={doc.deadline ?? ""} className="field" />
+              <DateField
+                name="deadline"
+                defaultValue={doc.deadline ?? ""}
+                label="Строк документа"
+              />
             </div>
             <div className="sm:col-span-2">
               <label className="label">Ключові слова, через кому</label>
-              <input name="keywords" defaultValue={doc.keywords.join(", ")} className="field" />
+              <input
+                name="keywords"
+                defaultValue={doc.keywords.join(", ")}
+                className="field"
+              />
             </div>
           </div>
 
@@ -185,17 +242,22 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
             <button type="submit" className="btn-primary">
               Зберегти
             </button>
-            <button type="submit" formAction={deleteDocument} className="btn-ghost text-negative">
-              Видалити
-            </button>
           </div>
           <p className="mt-2 text-xs text-muted">
             Зміна поля «Від кого» перекладає документ до іншої теки адресата.
             Видалення прибирає і сам файл зі сховища застосунку; копія в iCloud
             залишиться недоторканою.
           </p>
-        </form>
-      </details>
+        </ActionForm>
+      </Sheet>
+      <div className="mt-4">
+        <ConfirmAction
+          action={deleteDocument}
+          id={doc.id}
+          title="Видалити документ?"
+          consequence="Документ і його оригінальний файл у застосунку буде видалено. Зовнішні копії залишаться."
+        />
+      </div>
     </>
   );
 }

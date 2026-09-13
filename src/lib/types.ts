@@ -14,6 +14,7 @@ export interface Category {
 }
 
 export interface Transaction {
+  financial_account?: import("./financial").FinancialAccount | null;
   id: string;
   kind: Kind;
   amount_cents: number;
@@ -30,6 +31,7 @@ export interface Transaction {
 }
 
 export interface Subscription {
+  financial_account?: import("./financial").FinancialAccount | null;
   id: string;
   name: string;
   amount_cents: number;
@@ -43,6 +45,7 @@ export interface Subscription {
 }
 
 export interface SubscriptionPayment {
+  financial_account?: import("./financial").FinancialAccount | null;
   id: string;
   subscription_id: string;
   due_on: string;
@@ -84,6 +87,7 @@ export interface Task {
 }
 
 export interface Document {
+  summary?: string | null;
   id: string;
   receipt_id: string | null;
   doc_type: string;

@@ -28,21 +28,29 @@ export default function GlobalError({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-          background: "#f9fafb",
-          color: "#18181b",
+          fontFamily:
+            "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+          background: "#080D12",
+          color: "#F5F5F7",
         }}
       >
         <div style={{ maxWidth: 380, padding: 24, textAlign: "center" }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
           <h1 style={{ fontSize: 20, margin: 0 }}>Застосунок не запустився</h1>
-          <p style={{ fontSize: 14, color: "#71717a", marginTop: 8, lineHeight: 1.5 }}>
+          <p
+            style={{
+              fontSize: 14,
+              color: "#ADADAD",
+              marginTop: 8,
+              lineHeight: 1.5,
+            }}
+          >
             Дані в безпеці. Перезавантажте сторінку; якщо не допоможе —
-            подивіться журнал у Vercel.
+            спробуйте пізніше.
           </p>
 
           {error.digest && (
-            <p style={{ fontSize: 12, color: "#71717a", marginTop: 12 }}>
+            <p style={{ fontSize: 12, color: "#ADADAD", marginTop: 12 }}>
               Код помилки: <code>{error.digest}</code>
             </p>
           )}
@@ -55,10 +63,10 @@ export default function GlobalError({
               padding: "10px 18px",
               fontSize: 14,
               fontWeight: 600,
-              color: "#fff",
-              background: "#2563eb",
+              color: "#080D12",
+              background: "linear-gradient(135deg,#FF944D,#FF7E48)",
               border: "none",
-              borderRadius: 12,
+              borderRadius: 18,
               cursor: "pointer",
             }}
           >

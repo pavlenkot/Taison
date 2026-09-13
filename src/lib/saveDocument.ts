@@ -34,6 +34,7 @@ export async function persistDocument(
       amount_cents: doc.amountCents,
       keywords: doc.keywords,
       body_text: doc.bodyText,
+      summary: doc.summary,
       language: doc.language,
       icloud_path: icloudPath,
     })
