@@ -1,12 +1,20 @@
 import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { currentUser } from "@/lib/supabase/server";
 import { Nav } from "@/components/Nav";
 import { ServiceWorkerSetup } from "@/components/ServiceWorkerSetup";
 
+const inter = Inter({
+  subsets: ["latin", "cyrillic"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "Taison — особисті фінанси",
-  description: "Витрати, доходи, підписки, цілі та щоденні завдання в одному місці",
+  description:
+    "Витрати, доходи, підписки, цілі та щоденні завдання в одному місці",
   manifest: "/manifest.json",
   appleWebApp: { capable: true, statusBarStyle: "default", title: "Taison" },
 };
@@ -14,25 +22,25 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f9fafb" },
-    { media: "(prefers-color-scheme: dark)", color: "#09090b" },
-  ],
+  themeColor: "#080D12",
 };
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const user = await currentUser();
 
   return (
     <html lang="uk">
-      <body>
+      <body className={inter.variable}>
         <ServiceWorkerSetup />
         {user ? (
-          <div className="md:flex">
+          <div className="app-shell">
             <Nav email={user.email ?? ""} />
-            <main className="min-w-0 flex-1 px-4 pb-6 pt-4 md:px-8 md:pt-8">
-              <div className="mx-auto w-full max-w-4xl">{children}</div>
+            <main className="app-main">
+              <div className="app-content">{children}</div>
             </main>
           </div>
         ) : (

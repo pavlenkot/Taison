@@ -1,121 +1,112 @@
-import { createClient } from "@/lib/supabase/server";
 import { getCategories } from "@/lib/data";
-import { centsToInput, formatDate } from "@/lib/format";
-import type { Transaction } from "@/lib/types";
+import { getTransactions, currentSection } from "@/lib/financialData";
+import { accountFilter } from "@/lib/financial";
+import { centsToInput, formatMoney, formatDate } from "@/lib/format";
 import { PageHeader, Empty } from "@/components/ui";
 import { Scanner } from "@/components/Scanner";
+import { Sheet } from "@/components/Sheet";
+import { ActionForm, ConfirmAction } from "@/components/ActionForm";
+import { CategoryIcon } from "@/components/Icon";
 import { TransactionFields } from "@/components/TransactionFields";
 import { updateTransaction, deleteTransaction } from "../actions";
-import { activeProvider, aiConfigured } from "@/lib/ai";
-
+import { aiConfigured } from "@/lib/ai";
 export const dynamic = "force-dynamic";
-
-export default async function ScanPage() {
-  const supabase = await createClient();
-  const [{ data }, categories] = await Promise.all([
-    supabase
-      .from("transactions")
-      .select("*, categories (name, icon, slug)")
-      .eq("needs_review", true)
-      .order("created_at", { ascending: false }),
-    getCategories(),
+export default async function ScanPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ review?: string }>;
+}) {
+  const p = await searchParams;
+  const [pending, categories, section] = await Promise.all([
+    getTransactions({ review: true }),
+    getCategories(true),
+    currentSection(),
   ]);
-
-  const pending = (data as Transaction[]) ?? [];
-  const provider = activeProvider();
-  const configured = aiConfigured();
-
   return (
     <>
-      <PageHeader
-        title="Сканування"
-        subtitle={configured ? `Розпізнає ${provider === "claude" ? "Claude" : "Gemini"}` : undefined}
-      />
-
-      {!configured && (
-        <div className="card mb-4 border-warn/40 bg-warn/5 text-sm">
-          <div className="font-semibold text-warn">AI не налаштовано</div>
-          <p className="mt-1 text-muted">
-            Обрано рушій <strong>{provider}</strong>, але ключа немає. Додайте{" "}
-            <code>{provider === "claude" ? "ANTHROPIC_API_KEY" : "GEMINI_API_KEY"}</code> у змінні
-            середовища. Знімок усе одно збережеться, але дані доведеться ввести вручну.
-          </p>
-        </div>
+      <PageHeader title="Сканування" subtitle="Чеки та документи" />
+      {!aiConfigured() && (
+        <p className="card mb-4 text-sm text-warn">
+          Розпізнавання поки недоступне. Можна додати операцію вручну або
+          спробувати пізніше.
+        </p>
       )}
-
       <Scanner />
-
       <section className="mt-6">
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted">
-          Чекають на перевірку
-          {pending.length > 0 && (
-            <span className="ml-2 rounded-full bg-warn/15 px-2 py-0.5 text-xs text-warn">
-              {pending.length}
-            </span>
-          )}
+        <h2 className="mb-4">
+          Чекають на перевірку{" "}
+          <span className="text-muted text-base">{pending.length}</span>
         </h2>
-
         {pending.length === 0 ? (
-          <Empty icon="✓" text="Усі скани звірені" />
+          <Empty icon="check" text="Усі скани перевірені" />
         ) : (
           <ul className="space-y-2">
-            {pending.map((t) => (
-              <li key={t.id}>
-                <details open className="card [&[open]>summary]:mb-4">
-                  <summary className="flex cursor-pointer list-none items-center gap-3 marker:content-none">
-                    <span className="text-lg">{t.categories?.icon ?? "🧾"}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">
-                        {t.merchant ?? "Магазин не розпізнано"}
+            {pending.map((row) => (
+              <li key={row.id}>
+                <Sheet
+                  title="Перевірка чека"
+                  open={p.review === row.id}
+                  className="transaction-row w-full text-left"
+                  trigger={
+                    <>
+                      <CategoryIcon
+                        category={{
+                          ...row.categories,
+                          id: row.category_id ?? undefined,
+                        }}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="row-title block truncate">
+                          {row.merchant ?? "Магазин не розпізнано"}
+                        </span>
+                        <span className="row-meta">
+                          {formatDate(row.occurred_on)}
+                        </span>
                       </span>
-                      <span className="block text-xs text-muted">
-                        {formatDate(t.occurred_on)} ·{" "}
-                        {t.source === "shortcut" ? "Швидка команда" : "Скан у застосунку"}
-                      </span>
-                    </span>
-                    <span className="shrink-0 font-semibold tabular-nums">
-                      {centsToInput(t.amount_cents)} €
-                    </span>
-                  </summary>
-
-                  {t.receipt_id && (
+                      <strong className="row-amount">
+                        {formatMoney(row.amount_cents)}
+                      </strong>
+                    </>
+                  }
+                >
+                  {row.receipt_id && (
                     <a
-                      href={`/api/receipt/${t.receipt_id}`}
+                      href={"/api/receipt/" + row.receipt_id}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="btn-ghost mb-3 w-full"
+                      className="btn-ghost mb-4 w-full"
                     >
-                      🧾 Відкрити скан, щоб звірити
+                      Відкрити оригінал чека
                     </a>
                   )}
-
-                  <form action={updateTransaction} className="border-t border-line pt-4">
-                    <input type="hidden" name="id" value={t.id} />
+                  <ActionForm action={updateTransaction}>
+                    <input type="hidden" name="id" value={row.id} />
                     <TransactionFields
                       categories={categories}
                       defaults={{
-                        kind: t.kind,
-                        amount: centsToInput(t.amount_cents),
-                        merchant: t.merchant ?? "",
-                        note: t.note ?? "",
-                        occurred_on: t.occurred_on,
-                        category_id: t.category_id,
+                        kind: row.kind,
+                        amount: centsToInput(row.amount_cents),
+                        merchant: row.merchant ?? "",
+                        note: row.note ?? "",
+                        occurred_on: row.occurred_on,
+                        category_id: row.category_id,
+                        financial_account:
+                          row.financial_account ?? accountFilter(section),
                       }}
                     />
-                    <div className="mt-4 flex gap-2">
-                      <button type="submit" className="btn-primary">
-                        Підтвердити
-                      </button>
-                      <button
-                        type="submit"
-                        formAction={deleteTransaction}
-                        className="btn-ghost text-negative"
-                      >
-                        Видалити
-                      </button>
-                    </div>
-                  </form>
-                </details>
+                    <button className="btn-primary mt-5 w-full">
+                      Підтвердити
+                    </button>
+                  </ActionForm>
+                  <div className="mt-3">
+                    <ConfirmAction
+                      action={deleteTransaction}
+                      id={row.id}
+                      title="Видалити чернетку?"
+                      consequence="Операцію буде видалено з черги перевірки. Збережений скан залишиться у списку файлів."
+                    />
+                  </div>
+                </Sheet>
               </li>
             ))}
           </ul>

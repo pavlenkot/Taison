@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
-import { formatDate } from "@/lib/format";
+import { formatSavedAt, savedDateKey, formatBytes } from "@/lib/format";
 import type { Receipt } from "@/lib/types";
+import { Icon } from "@/components/Icon";
 import { PageHeader, Empty } from "@/components/ui";
 import Link from "next/link";
 
@@ -18,7 +19,12 @@ export default async function ReceiptsPage({
   searchParams: Promise<{ kind?: string }>;
 }) {
   const params = await searchParams;
-  const kind = params.kind === "document" ? "document" : params.kind === "receipt" ? "receipt" : null;
+  const kind =
+    params.kind === "document"
+      ? "document"
+      : params.kind === "receipt"
+        ? "receipt"
+        : null;
 
   const supabase = await createClient();
   let query = supabase
@@ -37,7 +43,10 @@ export default async function ReceiptsPage({
       <PageHeader title="Скани" subtitle={`${receipts.length} файлів`} />
 
       <div className="mb-4 flex gap-2">
-        <Link href="/receipts" className={`chip ${!kind ? "border-accent bg-accent/10 text-accent" : "text-muted"}`}>
+        <Link
+          href="/receipts"
+          className={`chip ${!kind ? "border-accent bg-accent/10 text-accent" : "text-muted"}`}
+        >
           Усі
         </Link>
         <Link
@@ -58,23 +67,32 @@ export default async function ReceiptsPage({
         <Empty icon="⌷" text="Ще немає жодного скану" />
       ) : (
         <ul className="space-y-2">
-          {receipts.map((r) => (
+          {receipts.map((r, index) => (
             <li key={r.id}>
+              {(index === 0 ||
+                savedDateKey(receipts[index - 1].created_at) !==
+                  savedDateKey(r.created_at)) && (
+                <h2 className="group-label">{savedDateKey(r.created_at)}</h2>
+              )}
               <a
                 href={`/api/receipt/${r.id}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="card flex items-center gap-3 transition hover:border-accent/40"
+                className="transaction-row transition hover:border-accent/40"
               >
-                <span className="text-lg">{r.kind === "document" ? "📄" : "🧾"}</span>
+                <span className="icon-circle">
+                  <Icon
+                    name={r.kind === "document" ? "documents" : "receipts"}
+                  />
+                </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">
-                    {r.original_name ?? (r.kind === "document" ? "Документ" : "Чек")}
+                    {r.original_name ??
+                      (r.kind === "document" ? "Документ" : "Чек")}
                   </span>
                   <span className="block truncate text-xs text-muted">
-                    {formatDate(r.created_at.slice(0, 10))}
+                    Збережено {formatSavedAt(r.created_at)}
                     {r.byte_size ? ` · ${readableSize(r.byte_size)}` : ""}
-                    {r.icloud_path ? ` · iCloud/${r.icloud_path}` : ""}
                   </span>
                 </span>
                 <span className="shrink-0 text-muted">↗</span>

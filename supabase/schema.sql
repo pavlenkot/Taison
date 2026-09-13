@@ -127,6 +127,16 @@ create table if not exists public.subscription_payments (
   created_at       timestamptz not null default now()
 );
 
+-- Старі записи лишаються без розділу: спосіб введення не визначає рахунок.
+alter table public.transactions add column if not exists financial_account text
+  check (financial_account in ('online', 'cash', 'gewerbe'));
+alter table public.subscriptions add column if not exists financial_account text
+  check (financial_account in ('online', 'cash', 'gewerbe'));
+alter table public.subscription_payments add column if not exists financial_account text
+  check (financial_account in ('online', 'cash', 'gewerbe'));
+create index if not exists transactions_account_date_idx
+  on public.transactions (user_id, financial_account, occurred_on desc);
+
 -- ---------------------------------------------------------------------
 -- Цілі
 -- ---------------------------------------------------------------------
@@ -355,16 +365,16 @@ begin
   v_amount := coalesce(p_amount_cents, s.amount_cents);
 
   insert into public.transactions
-    (user_id, kind, amount_cents, currency, category_id, merchant, note, occurred_on, source)
+    (user_id, kind, amount_cents, currency, category_id, merchant, note, occurred_on, source, financial_account)
   values
     (s.user_id, 'expense', v_amount, s.currency, s.category_id, s.name,
-     'Оплата підписки', p_paid_on, 'subscription')
+     'Оплата підписки', p_paid_on, 'subscription', s.financial_account)
   returning id into v_tx;
 
   insert into public.subscription_payments
-    (user_id, subscription_id, due_on, paid_on, amount_cents, transaction_id)
+    (user_id, subscription_id, due_on, paid_on, amount_cents, transaction_id, financial_account)
   values
-    (s.user_id, s.id, s.next_due_on, p_paid_on, v_amount, v_tx);
+    (s.user_id, s.id, s.next_due_on, p_paid_on, v_amount, v_tx, s.financial_account);
 
   if s.recurrence = 'once' then
     update public.subscriptions set active = false where id = s.id;
@@ -765,3 +775,22 @@ create policy "own rows" on public.push_subscriptions
   for all to authenticated
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
+
+-- ---------------------------------------------------------------------
+-- Місячні інвестиції — ручна загальна сума, окремо від витрат і накопичень.
+-- ---------------------------------------------------------------------
+alter table public.documents add column if not exists summary text;
+create table if not exists public.monthly_investments (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  month date not null check (extract(day from month) = 1),
+  amount_cents bigint not null check (amount_cents >= 0),
+  updated_at timestamptz not null default now(),
+  primary key (user_id, month)
+);
+alter table public.monthly_investments enable row level security;
+drop policy if exists "own rows" on public.monthly_investments;
+create policy "own rows" on public.monthly_investments
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop trigger if exists touch_monthly_investments on public.monthly_investments;
+create trigger touch_monthly_investments before update on public.monthly_investments
+  for each row execute function public.touch_updated_at();

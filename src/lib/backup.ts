@@ -1,3 +1,4 @@
+import { accountLabel } from "./financial";
 import ExcelJS from "exceljs";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -25,6 +26,7 @@ const SHEETS: SheetSpec[] = [
     select: "*, categories (name)",
     order: { column: "occurred_on", ascending: true },
     columns: [
+      { header: "Фінансовий розділ", key: "account", width: 20 },
       { header: "Дата", key: "date", width: 12 },
       { header: "Тип", key: "kind", width: 10 },
       { header: "Категорія", key: "category", width: 22 },
@@ -34,12 +36,19 @@ const SHEETS: SheetSpec[] = [
       { header: "Звідки", key: "source", width: 14 },
     ],
     map: (r) => ({
+      account: accountLabel(
+        typeof r.financial_account === "string" ? r.financial_account : null,
+      ),
       date: r.occurred_on,
       kind: r.kind === "income" ? "Дохід" : "Витрата",
-      category: (r.categories as { name?: string } | null)?.name ?? "Без категорії",
+      category:
+        (r.categories as { name?: string } | null)?.name ?? "Без категорії",
       merchant: r.merchant ?? "",
       note: r.note ?? "",
-      amount: r.kind === "income" ? cents(r.amount_cents) : -(cents(r.amount_cents) ?? 0),
+      amount:
+        r.kind === "income"
+          ? cents(r.amount_cents)
+          : -(cents(r.amount_cents) ?? 0),
       source: r.source,
     }),
   },
@@ -49,6 +58,7 @@ const SHEETS: SheetSpec[] = [
     select: "*",
     order: { column: "next_due_on", ascending: true },
     columns: [
+      { header: "Фінансовий розділ", key: "account", width: 20 },
       { header: "Назва", key: "name", width: 24 },
       { header: "Сума", key: "amount", width: 12 },
       { header: "Періодичність", key: "recurrence", width: 16 },
@@ -57,6 +67,9 @@ const SHEETS: SheetSpec[] = [
       { header: "Нотатка", key: "notes", width: 30 },
     ],
     map: (r) => ({
+      account: accountLabel(
+        typeof r.financial_account === "string" ? r.financial_account : null,
+      ),
       name: r.name,
       amount: cents(r.amount_cents),
       recurrence: r.recurrence,
@@ -82,7 +95,8 @@ const SHEETS: SheetSpec[] = [
       target: cents(r.target_cents),
       due: r.due_on ?? "",
       status: r.status,
-      done: typeof r.completed_at === "string" ? r.completed_at.slice(0, 10) : "",
+      done:
+        typeof r.completed_at === "string" ? r.completed_at.slice(0, 10) : "",
     }),
   },
   {
@@ -107,9 +121,10 @@ const SHEETS: SheetSpec[] = [
     title: "Документи",
     table: "documents",
     select:
-      "doc_type, issuer, subject, reference_number, document_date, deadline, amount_cents, keywords, drive_link",
+      "doc_type, issuer, subject, reference_number, document_date, deadline, amount_cents, keywords, drive_link, summary",
     order: { column: "document_date", ascending: false },
     columns: [
+      { header: "Короткий зміст", key: "summary", width: 50 },
       { header: "Дата", key: "date", width: 12 },
       { header: "Від кого", key: "issuer", width: 22 },
       { header: "Про що", key: "subject", width: 36 },
@@ -121,6 +136,7 @@ const SHEETS: SheetSpec[] = [
       { header: "Файл на Диску", key: "link", width: 40 },
     ],
     map: (r) => ({
+      summary: r.summary ?? "",
       date: r.document_date ?? "",
       issuer: r.issuer ?? "",
       subject: r.subject ?? "",
@@ -128,7 +144,9 @@ const SHEETS: SheetSpec[] = [
       reference: r.reference_number ?? "",
       deadline: r.deadline ?? "",
       amount: cents(r.amount_cents),
-      keywords: Array.isArray(r.keywords) ? (r.keywords as string[]).join(", ") : "",
+      keywords: Array.isArray(r.keywords)
+        ? (r.keywords as string[]).join(", ")
+        : "",
       link: r.drive_link ?? "",
     }),
   },
@@ -150,11 +168,24 @@ const SHEETS: SheetSpec[] = [
       hidden: r.hidden ? "так" : "ні",
     }),
   },
+  {
+    title: "Інвестиції",
+    table: "monthly_investments",
+    select: "*",
+    order: { column: "month", ascending: true },
+    columns: [
+      { header: "Місяць", key: "month", width: 14 },
+      { header: "Інвестовано", key: "amount", width: 16 },
+    ],
+    map: (r) => ({ month: r.month, amount: cents(r.amount_cents) }),
+  },
 ];
 
 /** Формули в Excel виконуються — рядок, що починається з =, знешкоджуємо. */
 function safeCell(value: unknown): unknown {
-  return typeof value === "string" && /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return typeof value === "string" && /^[=+\-@\t\r]/.test(value)
+    ? `'${value}`
+    : value;
 }
 
 export async function buildBackupWorkbook(
@@ -191,7 +222,8 @@ export async function buildBackupWorkbook(
 
     for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
       const mapped = spec.map(row);
-      for (const key of Object.keys(mapped)) mapped[key] = safeCell(mapped[key]);
+      for (const key of Object.keys(mapped))
+        mapped[key] = safeCell(mapped[key]);
       sheet.addRow(mapped);
       total += 1;
     }

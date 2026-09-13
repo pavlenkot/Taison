@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { ActionForm } from "@/components/ActionForm";
+import { getTransactions } from "@/lib/financialData";
+import { CategoryIcon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { formatMoney, formatDate } from "@/lib/format";
 import { resolvePeriod, type PeriodKind } from "@/lib/periods";
@@ -12,15 +15,7 @@ export const dynamic = "force-dynamic";
 const KINDS: PeriodKind[] = ["week", "month"];
 
 async function fetchRange(from: string, to: string): Promise<Transaction[]> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("transactions")
-    .select("*, categories (name, icon, slug)")
-    .eq("needs_review", false)
-    .gte("occurred_on", from)
-    .lte("occurred_on", to)
-    .order("occurred_on", { ascending: false });
-  return (data as Transaction[]) ?? [];
+  return getTransactions({ from, to });
 }
 
 export default async function DigestPage({
@@ -29,7 +24,9 @@ export default async function DigestPage({
   searchParams: Promise<{ period?: string; offset?: string }>;
 }) {
   const params = await searchParams;
-  const kind = (KINDS.includes(params.period as PeriodKind) ? params.period : "month") as PeriodKind;
+  const kind = (
+    KINDS.includes(params.period as PeriodKind) ? params.period : "month"
+  ) as PeriodKind;
   // Типово показуємо завершений період: підсумок незакінченого місяця
   // мало що означає.
   const offset = params.offset !== undefined ? Number(params.offset) || 0 : -1;
@@ -44,7 +41,10 @@ export default async function DigestPage({
 
   const digest = buildDigest(current, previous, period);
   const small = current
-    .filter((t) => t.kind === "expense" && t.amount_cents <= digest.smallThresholdCents)
+    .filter(
+      (t) =>
+        t.kind === "expense" && t.amount_cents <= digest.smallThresholdCents,
+    )
     .sort((a, b) => b.amount_cents - a.amount_cents);
 
   return (
@@ -65,7 +65,10 @@ export default async function DigestPage({
           </Link>
         ))}
         <span className="ml-auto flex items-center gap-2">
-          <Link href={`/digest?period=${kind}&offset=${offset - 1}`} className="chip">
+          <Link
+            href={`/digest?period=${kind}&offset=${offset - 1}`}
+            className="chip"
+          >
             ←
           </Link>
           {offset !== -1 && (
@@ -74,19 +77,24 @@ export default async function DigestPage({
             </Link>
           )}
           {offset < 0 && (
-            <Link href={`/digest?period=${kind}&offset=${offset + 1}`} className="chip">
+            <Link
+              href={`/digest?period=${kind}&offset=${offset + 1}`}
+              className="chip"
+            >
               →
             </Link>
           )}
         </span>
       </div>
 
-      {digest.count === 0 ? (
-        <Empty icon="🗒️" text="За цей період витрат не було — підсумовувати нічого" />
+      {digest.entryCount === 0 ? (
+        <Empty icon="🗒️" text="За цей період операцій не було" />
       ) : (
         <>
           <div className="card mb-4 text-center">
-            <div className="text-xs uppercase tracking-wide text-muted">Витрачено</div>
+            <div className="text-xs uppercase tracking-wide text-muted">
+              Витрачено
+            </div>
             <div className="mt-1 text-4xl font-bold tabular-nums">
               {formatMoney(digest.totalCents)}
             </div>
@@ -96,11 +104,27 @@ export default async function DigestPage({
                   digest.deltaPct > 0 ? "text-negative" : "text-positive"
                 }`}
               >
-                {digest.deltaPct > 0 ? "▲" : "▼"} {Math.abs(digest.deltaPct)}% до попереднього
+                {digest.deltaPct > 0 ? "▲" : "▼"} {Math.abs(digest.deltaPct)}%
+                до попереднього
               </div>
             )}
           </div>
 
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            <div className="card">
+              <p className="text-sm text-muted">Доходи</p>
+              <strong className="text-2xl text-positive tabular-nums">
+                {formatMoney(digest.incomeCents)}
+              </strong>
+            </div>
+            <div className="card">
+              <p className="text-sm text-muted">Різниця</p>
+              <strong className="text-2xl tabular-nums">
+                {formatMoney(digest.differenceCents)}
+              </strong>
+            </div>
+          </div>
+          <h2 className="mb-4">Короткі висновки</h2>
           <ul className="space-y-3">
             {digest.insights.map((insight) => (
               <li
@@ -114,7 +138,9 @@ export default async function DigestPage({
                 }`}
               >
                 <div className="flex gap-3">
-                  <span className="text-xl leading-none">{insight.icon}</span>
+                  <CategoryIcon
+                    category={{ icon: insight.icon, slug: insight.id }}
+                  />
                   <div className="min-w-0">
                     <div className="font-semibold">{insight.headline}</div>
                     <p className="mt-1 text-sm text-muted">{insight.detail}</p>
@@ -132,12 +158,19 @@ export default async function DigestPage({
               <ul className="space-y-2">
                 {digest.biggest.map((t) => (
                   <li key={t.id} className="card flex items-center gap-3">
-                    <span className="text-lg">{t.categories?.icon ?? "📦"}</span>
+                    <CategoryIcon
+                      category={{
+                        ...t.categories,
+                        id: t.category_id ?? undefined,
+                      }}
+                    />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">
                         {t.merchant ?? t.categories?.name ?? "Без назви"}
                       </span>
-                      <span className="block text-xs text-muted">{formatDate(t.occurred_on)}</span>
+                      <span className="block text-xs text-muted">
+                        {formatDate(t.occurred_on)}
+                      </span>
                     </span>
                     <span className="shrink-0 font-semibold tabular-nums">
                       {formatMoney(t.amount_cents)}
@@ -160,14 +193,22 @@ export default async function DigestPage({
                 <ul className="mt-3 space-y-1.5 border-t border-line pt-3">
                   {small.map((t) => (
                     <li key={t.id} className="flex items-center gap-3 text-sm">
-                      <span>{t.categories?.icon ?? "📦"}</span>
+                      <CategoryIcon
+                        category={{
+                          ...t.categories,
+                          id: t.category_id ?? undefined,
+                        }}
+                        size={20}
+                      />
                       <span className="min-w-0 flex-1 truncate">
                         {t.merchant ?? t.categories?.name ?? "Без назви"}
                       </span>
                       <span className="shrink-0 text-xs text-muted">
                         {formatDate(t.occurred_on)}
                       </span>
-                      <span className="shrink-0 tabular-nums">{formatMoney(t.amount_cents)}</span>
+                      <span className="shrink-0 tabular-nums">
+                        {formatMoney(t.amount_cents)}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -175,13 +216,13 @@ export default async function DigestPage({
             </section>
           )}
 
-          <form action={markDigestSeen} className="mt-6">
+          <ActionForm action={markDigestSeen} className="mt-6">
             <input type="hidden" name="period_kind" value={kind} />
             <input type="hidden" name="period_start" value={period.from} />
             <button type="submit" className="btn-ghost w-full">
               Прочитав — прибрати з головної
             </button>
-          </form>
+          </ActionForm>
         </>
       )}
     </>

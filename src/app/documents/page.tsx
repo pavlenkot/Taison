@@ -1,9 +1,20 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { formatDate, formatMoney, describeDueDate, isoDate } from "@/lib/format";
-import { DOC_TYPE_LABELS, DOC_TYPES, type DocType } from "@/lib/ai/documentSchema";
+import {
+  formatDate,
+  formatMoney,
+  describeDueDate,
+  isoDate,
+} from "@/lib/format";
+import {
+  DOC_TYPE_LABELS,
+  DOC_TYPES,
+  type DocType,
+} from "@/lib/ai/documentSchema";
 import type { Document, DocumentFolder } from "@/lib/types";
 import { PageHeader, Empty } from "@/components/ui";
+import { Sheet } from "@/components/Sheet";
+import { Icon } from "@/components/Icon";
 import { Scanner } from "@/components/Scanner";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +35,9 @@ export default async function DocumentsPage({
 }) {
   const params = await searchParams;
   const query = (params.q ?? "").trim();
-  const typeFilter = DOC_TYPES.includes(params.type as DocType) ? (params.type as DocType) : null;
+  const typeFilter = DOC_TYPES.includes(params.type as DocType)
+    ? (params.type as DocType)
+    : null;
   const folderFilter = params.folder ?? null;
 
   const supabase = await createClient();
@@ -35,9 +48,12 @@ export default async function DocumentsPage({
   if (query.length > 0) {
     const { data } = await supabase.rpc("search_documents", { p_query: query });
     documents = (data as Document[]) ?? [];
-    if (typeFilter) documents = documents.filter((d) => d.doc_type === typeFilter);
+    if (typeFilter)
+      documents = documents.filter((d) => d.doc_type === typeFilter);
     if (folderFilter) {
-      documents = documents.filter((d) => (d.issuer_slug ?? NO_ISSUER) === folderFilter);
+      documents = documents.filter(
+        (d) => (d.issuer_slug ?? NO_ISSUER) === folderFilter,
+      );
     }
   } else {
     let select = supabase
@@ -74,15 +90,21 @@ export default async function DocumentsPage({
       if (aAhead !== bAhead) return aAhead ? -1 : 1;
       if (a.deadline === b.deadline) return 0;
       // Майбутні — від найближчого, прострочені — від найсвіжішого.
-      return (a.deadline! < b.deadline!) === aAhead ? -1 : 1;
+      return a.deadline! < b.deadline! === aAhead ? -1 : 1;
     });
 
   const activeFolder = folders.find((f) => f.issuer_slug === folderFilter);
-  const filtered = query.length > 0 || typeFilter !== null || folderFilter !== null;
+  const filtered =
+    query.length > 0 || typeFilter !== null || folderFilter !== null;
 
   const link = (extra: Partial<Params>) => {
     const next = new URLSearchParams();
-    const merged = { q: query, type: typeFilter ?? "", folder: folderFilter ?? "", ...extra };
+    const merged = {
+      q: query,
+      type: typeFilter ?? "",
+      folder: folderFilter ?? "",
+      ...extra,
+    };
     for (const [key, value] of Object.entries(merged)) {
       if (value) next.set(key, String(value));
     }
@@ -103,7 +125,9 @@ export default async function DocumentsPage({
 
       <form method="get" className="mb-4">
         {typeFilter && <input type="hidden" name="type" value={typeFilter} />}
-        {folderFilter && <input type="hidden" name="folder" value={folderFilter} />}
+        {folderFilter && (
+          <input type="hidden" name="folder" value={folderFilter} />
+        )}
         <div className="flex gap-2">
           <input
             name="q"
@@ -126,6 +150,32 @@ export default async function DocumentsPage({
         </div>
       )}
 
+      {folders.length > 0 && (
+        <section className="mb-5">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted">
+            Теки за установами
+          </h2>
+          <div className="folder-grid">
+            {folders.map((f) => (
+              <Link
+                key={f.issuer_slug}
+                href={link({
+                  folder: f.issuer_slug === folderFilter ? "" : f.issuer_slug,
+                })}
+                className="folder-tile"
+                aria-current={
+                  f.issuer_slug === folderFilter ? "true" : undefined
+                }
+              >
+                <Icon name="folder" size={36} />
+                <strong>{f.issuer}</strong>
+                <span className="ml-1 opacity-60">{f.documents}</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
       {withDeadline.length > 0 && !filtered && (
         <div className="card mb-4 border-warn/40 bg-warn/5">
           <div className="text-xs font-semibold uppercase tracking-wide text-warn">
@@ -136,7 +186,10 @@ export default async function DocumentsPage({
               const due = describeDueDate(d.deadline!);
               return (
                 <li key={d.id}>
-                  <Link href={`/documents/${d.id}`} className="flex items-center gap-3 text-sm">
+                  <Link
+                    href={`/documents/${d.id}`}
+                    className="flex items-center gap-3 text-sm"
+                  >
                     <span className="min-w-0 flex-1 truncate font-medium">
                       {d.issuer ?? "Документ"}
                       {d.subject ? ` — ${d.subject}` : ""}
@@ -154,30 +207,6 @@ export default async function DocumentsPage({
         </div>
       )}
 
-      {folders.length > 0 && (
-        <section className="mb-5">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted">
-            Теки адресатів
-          </h2>
-          <div className="flex flex-wrap gap-2">
-            {folders.map((f) => (
-              <Link
-                key={f.issuer_slug}
-                href={link({ folder: f.issuer_slug === folderFilter ? "" : f.issuer_slug })}
-                className={`chip ${
-                  f.issuer_slug === folderFilter
-                    ? "border-accent bg-accent/10 text-accent"
-                    : "text-muted"
-                }`}
-              >
-                📁 {f.issuer}
-                <span className="ml-1 opacity-60">{f.documents}</span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
       <section className="mb-5">
         <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted">
           Категорії
@@ -188,17 +217,21 @@ export default async function DocumentsPage({
               key={t}
               href={link({ type: t === typeFilter ? "" : t })}
               className={`chip ${
-                t === typeFilter ? "border-accent bg-accent/10 text-accent" : "text-muted"
+                t === typeFilter
+                  ? "border-accent bg-accent/10 text-accent"
+                  : "text-muted"
               }`}
             >
-              {DOC_TYPE_LABELS[t].icon} {DOC_TYPE_LABELS[t].title}
+              {DOC_TYPE_LABELS[t].title}
             </Link>
           ))}
         </div>
       </section>
 
       <div className="mb-5">
-        <Scanner fixedKind="document" />
+        <Sheet title="Додати документ" icon="documents">
+          <Scanner fixedKind="document" />
+        </Sheet>
       </div>
 
       {documents.length === 0 ? (
@@ -213,13 +246,20 @@ export default async function DocumentsPage({
       ) : (
         <ul className="space-y-2">
           {documents.map((d) => {
-            const label = DOC_TYPE_LABELS[(d.doc_type as DocType) ?? "other"] ?? DOC_TYPE_LABELS.other;
+            const label =
+              DOC_TYPE_LABELS[(d.doc_type as DocType) ?? "other"] ??
+              DOC_TYPE_LABELS.other;
             const due = d.deadline ? describeDueDate(d.deadline) : null;
 
             return (
               <li key={d.id}>
-                <Link href={`/documents/${d.id}`} className="card flex gap-3 transition hover:border-accent/40">
-                  <span className="text-xl leading-none">{label.icon}</span>
+                <Link
+                  href={`/documents/${d.id}`}
+                  className="card flex gap-3 transition hover:border-accent/40"
+                >
+                  <span className="icon-circle">
+                    <Icon name="documents" />
+                  </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">
                       {d.subject ?? d.issuer ?? "Без назви"}
@@ -227,7 +267,9 @@ export default async function DocumentsPage({
                     <span className="block truncate text-xs text-muted">
                       {d.issuer ? `${d.issuer} · ` : ""}
                       {label.title}
-                      {d.document_date ? ` · ${formatDate(d.document_date)}` : ""}
+                      {d.document_date
+                        ? ` · ${formatDate(d.document_date)}`
+                        : ""}
                       {d.reference_number ? ` · № ${d.reference_number}` : ""}
                     </span>
                     {due && (

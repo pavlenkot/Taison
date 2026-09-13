@@ -1,10 +1,10 @@
+"use client";
+import { useState } from "react";
 import type { Category } from "@/lib/types";
 import { isoDate } from "@/lib/format";
-
-/**
- * Поля операції. Використовуються і для створення, і для редагування —
- * різниця лише в defaults, які передає сторінка.
- */
+import { AccountField } from "./AccountSwitch";
+import { DateField } from "./Calendar";
+import { CategoryField } from "./CategoryPicker";
 export function TransactionFields({
   categories,
   defaults,
@@ -17,94 +17,87 @@ export function TransactionFields({
     note?: string;
     occurred_on?: string;
     category_id?: string | null;
+    financial_account?: string | null;
   };
 }) {
-  const kind = defaults?.kind ?? "expense";
-
+  const [kind, setKind] = useState(defaults?.kind ?? "expense");
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      <div>
-        <label className="label" htmlFor="kind">
-          Тип
-        </label>
-        <select id="kind" name="kind" defaultValue={kind} className="field">
-          <option value="expense">Витрата</option>
-          <option value="income">Дохід</option>
-        </select>
+    <div className="grid gap-4 sm:grid-cols-2">
+      <div className="sm:col-span-2 flex gap-3">
+        {(["expense", "income"] as const).map((k) => (
+          <label
+            key={k}
+            className={
+              "chip flex-1 " + (kind === k ? "border-accent" : "text-muted")
+            }
+          >
+            <input
+              type="radio"
+              name="kind"
+              value={k}
+              checked={kind === k}
+              onChange={() => setKind(k)}
+              className="sr-only"
+            />
+            {k === "expense" ? "Витрата" : "Дохід"}
+          </label>
+        ))}
       </div>
-
-      <div>
-        <label className="label" htmlFor="amount">
-          Сума, €
-        </label>
+      <label className="sm:col-span-2">
+        <span className="label">Сума, €</span>
         <input
-          id="amount"
           name="amount"
           required
           inputMode="decimal"
           placeholder="0,00"
           defaultValue={defaults?.amount}
-          className="field tabular-nums"
+          className="field tabular-nums !text-3xl !py-4"
         />
-      </div>
-
+      </label>
+      <AccountField
+        value={
+          defaults?.financial_account === undefined
+            ? "online"
+            : defaults.financial_account
+        }
+        allowUnassigned={defaults?.financial_account === null}
+      />
+      <CategoryField
+        categories={categories}
+        kind={kind}
+        initial={defaults?.category_id}
+      />
       <div>
-        <label className="label" htmlFor="category_id">
-          Категорія
-        </label>
-        <select
-          id="category_id"
-          name="category_id"
-          defaultValue={defaults?.category_id ?? ""}
-          className="field"
-        >
-          <option value="">Без категорії</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.icon} {c.name} {c.kind === "income" ? "(дохід)" : ""}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label className="label" htmlFor="occurred_on">
-          Дата
-        </label>
-        <input
-          id="occurred_on"
+        <span className="label">Дата</span>
+        <DateField
           name="occurred_on"
-          type="date"
           defaultValue={defaults?.occurred_on ?? isoDate()}
-          className="field"
+          required
+          label="Дата операції"
         />
       </div>
-
-      <div className="sm:col-span-2">
-        <label className="label" htmlFor="merchant">
-          Магазин або джерело
-        </label>
+      <label>
+        <span className="label">
+          {kind === "expense" ? "Магазин" : "Джерело доходу"}
+        </span>
         <input
-          id="merchant"
           name="merchant"
-          placeholder="Наприклад, ALDI"
           defaultValue={defaults?.merchant}
+          placeholder={
+            kind === "expense" ? "Наприклад, ALDI" : "Наприклад, зарплата"
+          }
           className="field"
         />
-      </div>
-
-      <div className="sm:col-span-2">
-        <label className="label" htmlFor="note">
-          Нотатка
-        </label>
+      </label>
+      <label className="sm:col-span-2">
+        <span className="label">Нотатка</span>
         <input
-          id="note"
           name="note"
-          placeholder="Необов'язково"
           defaultValue={defaults?.note}
+          placeholder="Необов’язково"
           className="field"
         />
-      </div>
+      </label>
     </div>
   );
 }

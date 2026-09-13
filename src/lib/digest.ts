@@ -13,6 +13,9 @@ export interface Insight {
 export interface Digest {
   period: Period;
   totalCents: number;
+  incomeCents: number;
+  differenceCents: number;
+  entryCount: number;
   previousCents: number;
   /** null, якщо порівнювати нема з чим. */
   deltaPct: number | null;
@@ -25,7 +28,12 @@ export interface Digest {
   daysInPeriod: number;
   daysWithSpending: number;
   averagePerDayCents: number;
-  topCategory: { name: string; icon: string; cents: number; deltaPct: number | null } | null;
+  topCategory: {
+    name: string;
+    icon: string;
+    cents: number;
+    deltaPct: number | null;
+  } | null;
   insights: Insight[];
 }
 
@@ -47,7 +55,9 @@ function percentChange(now: number, before: number): number | null {
   return Math.round(((now - before) / before) * 100);
 }
 
-function categoryTotals(rows: Transaction[]): Map<string, { cents: number; icon: string }> {
+function categoryTotals(
+  rows: Transaction[],
+): Map<string, { cents: number; icon: string }> {
   const out = new Map<string, { cents: number; icon: string }>();
   for (const row of rows) {
     const name = row.categories?.name ?? "Без категорії";
@@ -76,6 +86,9 @@ export function buildDigest(
   previous: Transaction[],
   period: Period,
 ): Digest {
+  current = current.filter((row) => !row.needs_review);
+  previous = previous.filter((row) => !row.needs_review);
+  const incomeCents = sum(current.filter((row) => row.kind === "income"));
   const expenses = current.filter((row) => row.kind === "expense");
   const previousExpenses = previous.filter((row) => row.kind === "expense");
 
@@ -83,28 +96,38 @@ export function buildDigest(
   const previousCents = sum(previousExpenses);
   const deltaPct = percentChange(totalCents, previousCents);
 
-  const sortedByAmount = [...expenses].sort((a, b) => b.amount_cents - a.amount_cents);
+  const sortedByAmount = [...expenses].sort(
+    (a, b) => b.amount_cents - a.amount_cents,
+  );
   const biggest = sortedByAmount.slice(0, 3);
 
   const smallThresholdCents = median(expenses.map((row) => row.amount_cents));
-  const small = expenses.filter((row) => row.amount_cents <= smallThresholdCents);
+  const small = expenses.filter(
+    (row) => row.amount_cents <= smallThresholdCents,
+  );
   const smallTotalCents = sum(small);
 
   const daysInPeriod = daysBetween(period.from, period.to);
   const spendingDays = new Set(expenses.map((row) => row.occurred_on));
   const daysWithSpending = spendingDays.size;
-  const averagePerDayCents = daysInPeriod > 0 ? Math.round(totalCents / daysInPeriod) : 0;
+  const averagePerDayCents =
+    daysInPeriod > 0 ? Math.round(totalCents / daysInPeriod) : 0;
 
   const nowByCategory = categoryTotals(expenses);
   const beforeByCategory = categoryTotals(previousExpenses);
 
-  const topEntry = [...nowByCategory.entries()].sort((a, b) => b[1].cents - a[1].cents)[0];
+  const topEntry = [...nowByCategory.entries()].sort(
+    (a, b) => b[1].cents - a[1].cents,
+  )[0];
   const topCategory = topEntry
     ? {
         name: topEntry[0],
         icon: topEntry[1].icon,
         cents: topEntry[1].cents,
-        deltaPct: percentChange(topEntry[1].cents, beforeByCategory.get(topEntry[0])?.cents ?? 0),
+        deltaPct: percentChange(
+          topEntry[1].cents,
+          beforeByCategory.get(topEntry[0])?.cents ?? 0,
+        ),
       }
     : null;
 
@@ -113,7 +136,8 @@ export function buildDigest(
 
   const insights: Insight[] = [];
   const periodWord = period.kind === "week" ? "цього тижня" : "цього місяця";
-  const previousWord = period.kind === "week" ? "минулого тижня" : "минулого місяця";
+  const previousWord =
+    period.kind === "week" ? "минулого тижня" : "минулого місяця";
 
   // 1. Скільки всього і куди рухається
   if (deltaPct === null) {
@@ -196,7 +220,10 @@ export function buildDigest(
             ? `, стільки ж, скільки ${previousWord}.`
             : `, це на ${Math.abs(topCategory.deltaPct)}% ` +
               `${topCategory.deltaPct > 0 ? "більше" : "менше"}, ніж ${previousWord}.`),
-      tone: topCategory.deltaPct !== null && topCategory.deltaPct > 25 ? "warn" : "neutral",
+      tone:
+        topCategory.deltaPct !== null && topCategory.deltaPct > 25
+          ? "warn"
+          : "neutral",
     });
   }
 
@@ -219,6 +246,9 @@ export function buildDigest(
   return {
     period,
     totalCents,
+    incomeCents,
+    differenceCents: incomeCents - totalCents,
+    entryCount: current.length,
     previousCents,
     deltaPct,
     count: expenses.length,

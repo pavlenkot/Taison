@@ -1,4 +1,8 @@
 import Link from "next/link";
+import { ActionForm } from "@/components/ActionForm";
+import { allRows } from "@/lib/financialData";
+import { accountLabel } from "@/lib/financial";
+import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { formatMoney, formatDate, isoDate } from "@/lib/format";
 import { resolvePeriod } from "@/lib/periods";
@@ -22,30 +26,38 @@ export default async function ArchivePage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const params = await searchParams;
-  const tab = (TABS.some((t) => t.key === params.tab) ? params.tab : "tasks") as TabKey;
+  const tab = (
+    TABS.some((t) => t.key === params.tab) ? params.tab : "tasks"
+  ) as TabKey;
 
   const supabase = await createClient();
   const week = resolvePeriod("week", 0);
   const month = resolvePeriod("month", 0);
 
-  const [{ data: taskRows }, { data: paymentRows }, { data: goalRows }] = await Promise.all([
-    supabase
-      .from("tasks")
-      .select("*")
-      .not("archived_at", "is", null)
-      .order("done_at", { ascending: false })
-      .limit(100),
-    supabase
-      .from("subscription_payments")
-      .select("*, subscriptions (name)")
-      .order("paid_on", { ascending: false })
-      .limit(100),
-    supabase
-      .from("goals")
-      .select("*")
-      .in("status", ["done", "archived"])
-      .order("completed_at", { ascending: false })
-      .limit(100),
+  const [taskRows, paymentRows, goalRows] = await Promise.all([
+    allRows<Task>(
+      supabase
+        .from("tasks")
+        .select("*")
+        .not("archived_at", "is", null)
+        .order("done_at", { ascending: false })
+        .order("id"),
+    ),
+    allRows<SubscriptionPayment>(
+      supabase
+        .from("subscription_payments")
+        .select("*, subscriptions (name)")
+        .order("paid_on", { ascending: false })
+        .order("id"),
+    ),
+    allRows<Goal>(
+      supabase
+        .from("goals")
+        .select("*")
+        .in("status", ["done", "archived"])
+        .order("completed_at", { ascending: false })
+        .order("id"),
+    ),
   ]);
 
   const tasks = (taskRows as Task[]) ?? [];
@@ -53,10 +65,16 @@ export default async function ArchivePage({
   const goals = (goalRows as Goal[]) ?? [];
 
   const doneThisWeek = tasks.filter(
-    (t) => t.done_at && t.done_at.slice(0, 10) >= week.from && t.done_at.slice(0, 10) <= week.to,
+    (t) =>
+      t.done_at &&
+      t.done_at.slice(0, 10) >= week.from &&
+      t.done_at.slice(0, 10) <= week.to,
   ).length;
   const doneThisMonth = tasks.filter(
-    (t) => t.done_at && t.done_at.slice(0, 10) >= month.from && t.done_at.slice(0, 10) <= month.to,
+    (t) =>
+      t.done_at &&
+      t.done_at.slice(0, 10) >= month.from &&
+      t.done_at.slice(0, 10) <= month.to,
   ).length;
 
   const paidThisMonth = payments
@@ -66,13 +84,19 @@ export default async function ArchivePage({
 
   return (
     <>
-      <PageHeader title="Архів" subtitle="Нічого не видаляється — усе лишається тут" />
+      <PageHeader
+        title="Архів"
+        subtitle="Виконані завдання, оплачені платежі та закриті цілі"
+      />
 
       <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="Завдань за тиждень" value={String(doneThisWeek)} />
         <Stat label="Завдань за місяць" value={String(doneThisMonth)} />
         <Stat label="Платежів за місяць" value={formatMoney(paidThisMonth)} />
-        <Stat label="Цілей досягнуто" value={String(goals.length)} />
+        <Stat
+          label="Цілей досягнуто"
+          value={String(goals.filter((g) => g.status === "done").length)}
+        />
       </div>
 
       <div className="mb-4 flex gap-2">
@@ -94,21 +118,28 @@ export default async function ArchivePage({
           <ul className="space-y-2">
             {tasks.map((t) => (
               <li key={t.id} className="card flex items-center gap-3">
-                <span className="text-positive">✓</span>
+                <span className="icon-circle text-positive">
+                  <Icon name="check" />
+                </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium line-through decoration-line">
                     {t.title}
                   </span>
                   <span className="block text-xs text-muted">
-                    {t.done_at ? formatDate(t.done_at.slice(0, 10)) : formatDate(t.due_on)}
+                    {t.done_at
+                      ? formatDate(t.done_at.slice(0, 10))
+                      : formatDate(t.due_on)}
                   </span>
                 </span>
-                <form action={reopenTask}>
+                <ActionForm action={reopenTask}>
                   <input type="hidden" name="id" value={t.id} />
-                  <button type="submit" className="shrink-0 text-xs text-muted hover:text-accent">
+                  <button
+                    type="submit"
+                    className="shrink-0 text-xs text-muted hover:text-accent"
+                  >
                     Повернути
                   </button>
-                </form>
+                </ActionForm>
               </li>
             ))}
           </ul>
@@ -122,14 +153,19 @@ export default async function ArchivePage({
             <ul className="space-y-2">
               {payments.map((p) => (
                 <li key={p.id} className="card flex items-center gap-3">
-                  <span className="text-positive">✓</span>
+                  <span className="icon-circle text-positive">
+                    <Icon name="check" />
+                  </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">
                       {p.subscriptions?.name ?? "Платіж"}
                     </span>
                     <span className="block text-xs text-muted">
-                      Оплачено {formatDate(p.paid_on)}
-                      {p.paid_on > p.due_on ? ` · строк був ${formatDate(p.due_on)}` : ""}
+                      Оплачено {formatDate(p.paid_on)} ·{" "}
+                      {accountLabel(p.financial_account)}
+                      {p.paid_on > p.due_on
+                        ? ` · строк був ${formatDate(p.due_on)}`
+                        : ""}
                     </span>
                   </span>
                   <span className="shrink-0 font-semibold tabular-nums">
@@ -140,7 +176,9 @@ export default async function ArchivePage({
             </ul>
             <p className="mt-3 text-right text-sm text-muted">
               Разом за {payments.length} останніх платежів:{" "}
-              <strong className="text-ink tabular-nums">{formatMoney(paidTotal)}</strong>
+              <strong className="text-ink tabular-nums">
+                {formatMoney(paidTotal)}
+              </strong>
             </p>
           </>
         ))}
@@ -152,11 +190,16 @@ export default async function ArchivePage({
           <ul className="space-y-2">
             {goals.map((g) => (
               <li key={g.id} className="card flex items-center gap-3">
-                <span className="text-positive">✓</span>
+                <span className="icon-circle text-positive">
+                  <Icon name="check" />
+                </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{g.title}</span>
                   <span className="block text-xs text-muted">
-                    {g.completed_at ? `Досягнуто ${formatDate(g.completed_at.slice(0, 10))}` : "—"}
+                    {g.completed_at
+                      ? (g.status === "done" ? "Досягнуто " : "Закрито ") +
+                        formatDate(g.completed_at.slice(0, 10))
+                      : "—"}
                   </span>
                 </span>
                 {g.target_cents && (

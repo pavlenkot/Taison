@@ -1,10 +1,14 @@
 "use client";
 
+import Link from "next/link";
+import { formatMoney } from "@/lib/format";
+import { Icon } from "./Icon";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-type Phase = "idle" | "preparing" | "uploading" | "recognising" | "done" | "error";
+type Phase =
+  "idle" | "preparing" | "uploading" | "recognising" | "done" | "error";
 type Kind = "receipt" | "document";
 
 interface Filing {
@@ -15,6 +19,8 @@ interface Filing {
 
 interface Result {
   documentKind: Kind;
+  transactionId?: string;
+  documentId?: string;
   merchant?: string | null;
   totalCents?: number | null;
   confidence?: string;
@@ -36,7 +42,10 @@ const PHASE_TEXT: Record<Phase, string> = {
 };
 
 /** Зменшує знімок до 1600 px по довгій стороні: менше трафіку і дешевший розбір. */
-async function downscale(file: File, maxEdge = 1600): Promise<{ dataUrl: string }> {
+async function downscale(
+  file: File,
+  maxEdge = 1600,
+): Promise<{ dataUrl: string }> {
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
   const width = Math.round(bitmap.width * scale);
@@ -69,7 +78,14 @@ async function buildPdf(pages: string[]): Promise<Blob> {
     );
     const w = props.width * ratio;
     const h = props.height * ratio;
-    doc.addImage(pages[i], "JPEG", (pageWidth - w) / 2, (pageHeight - h) / 2, w, h);
+    doc.addImage(
+      pages[i],
+      "JPEG",
+      (pageWidth - w) / 2,
+      (pageHeight - h) / 2,
+      w,
+      h,
+    );
   }
 
   return doc.output("blob");
@@ -78,6 +94,7 @@ async function buildPdf(pages: string[]): Promise<Blob> {
 export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState("");
   const [result, setResult] = useState<Result | null>(null);
@@ -88,7 +105,10 @@ export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
   // Об'єктні URL живуть до явного відкликання — прибираємо за собою.
   // Відкликаємо лише при знятті компонента: залежності від самих адрес
   // тут не можна, інакше поява .txt відкликала б ще потрібний PDF.
-  const urlsRef = useRef<{ pdf: string | null; meta: string | null }>({ pdf: null, meta: null });
+  const urlsRef = useRef<{ pdf: string | null; meta: string | null }>({
+    pdf: null,
+    meta: null,
+  });
   urlsRef.current = { pdf: pdfUrl, meta: metaUrl };
 
   useEffect(() => {
@@ -111,11 +131,16 @@ export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
     // Поки скан не прив'язаний до рядка receipts, файл у сховищі нічий:
     // якщо розбір зірветься, його треба прибрати, інакше він залишиться
     // у бакеті назавжди — жодна сторінка про нього не знає.
-    let orphan: { path: string; supabase: ReturnType<typeof createClient> } | null = null;
+    let orphan: {
+      path: string;
+      supabase: ReturnType<typeof createClient>;
+    } | null = null;
 
     try {
       setPhase("preparing");
-      const shrunk = await Promise.all(Array.from(files).map((f) => downscale(f)));
+      const shrunk = await Promise.all(
+        Array.from(files).map((f) => downscale(f)),
+      );
       const pdf = await buildPdf(shrunk.map((s) => s.dataUrl));
 
       setPhase("uploading");
@@ -151,20 +176,25 @@ export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
       });
 
       const payload = (await response.json()) as Result & { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Помилка розпізнавання");
+      if (!response.ok)
+        throw new Error(payload.error ?? "Помилка розпізнавання");
 
       // Скан прийнято — файл більше не сирота.
       orphan = null;
 
       if (payload.filing?.metadata) {
         setMetaUrl(
-          URL.createObjectURL(new Blob([payload.filing.metadata], { type: "text/plain" })),
+          URL.createObjectURL(
+            new Blob([payload.filing.metadata], { type: "text/plain" }),
+          ),
         );
       }
 
       setResult(payload);
       setPhase("done");
-      router.refresh();
+      if (payload.transactionId)
+        router.push("/scan?review=" + payload.transactionId);
+      else router.refresh();
     } catch (e) {
       if (orphan) {
         await orphan.supabase.storage.from("receipts").remove([orphan.path]);
@@ -173,24 +203,38 @@ export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
       setPhase("error");
     } finally {
       if (inputRef.current) inputRef.current.value = "";
+      if (galleryRef.current) galleryRef.current.value = "";
     }
   }
 
-  const busy = phase === "preparing" || phase === "uploading" || phase === "recognising";
+  const busy =
+    phase === "preparing" || phase === "uploading" || phase === "recognising";
   const documentMode = kind === "document";
-  const downloadBase = result?.filing?.filename || `skan-${new Date().toISOString().slice(0, 10)}`;
+  const downloadBase =
+    result?.filing?.filename || `skan-${new Date().toISOString().slice(0, 10)}`;
 
   return (
     <div className="card">
       {!fixedKind && (
-        <div className="mb-3 flex gap-2">
+        <div className="scanner-options">
           {(["receipt", "document"] as const).map((k) => (
             <button
               key={k}
               type="button"
-              onClick={() => setKind(k)}
-              className={`chip ${k === kind ? "border-accent bg-accent/10 text-accent" : "text-muted"}`}
+              disabled={busy}
+              onClick={() => {
+                setKind(k);
+                inputRef.current?.click();
+              }}
+              className="scanner-option"
+              aria-pressed={k === kind}
             >
+              <span className="icon-circle">
+                <Icon
+                  name={k === "receipt" ? "receipts" : "documents"}
+                  size={36}
+                />
+              </span>
               {k === "receipt" ? "Чек" : "Документ"}
             </button>
           ))}
@@ -207,18 +251,42 @@ export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
         onChange={(e) => handleFiles(e.target.files)}
       />
 
+      <input
+        ref={galleryRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => handleFiles(e.target.files)}
+      />
+
+      {fixedKind && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => inputRef.current?.click()}
+          className="btn-primary w-full py-4 text-base"
+        >
+          {busy
+            ? PHASE_TEXT[phase]
+            : documentMode
+              ? "Сфотографувати документ"
+              : "Сфотографувати чек"}
+        </button>
+      )}
       <button
         type="button"
         disabled={busy}
-        onClick={() => inputRef.current?.click()}
-        className="btn-primary w-full py-4 text-base"
+        className="btn-ghost w-full mt-3"
+        onClick={() => galleryRef.current?.click()}
       >
-        {busy
-          ? PHASE_TEXT[phase]
-          : documentMode
-            ? "Сфотографувати документ"
-            : "Сфотографувати чек"}
+        Вибрати з фото · {documentMode ? "Документ" : "Чек"}
       </button>
+      {busy && (
+        <p role="status" className="mt-3 text-center text-muted">
+          {PHASE_TEXT[phase]}
+        </p>
+      )}
 
       <p className="mt-2 text-center text-xs text-muted">
         Можна вибрати кілька знімків — вони стануть сторінками одного PDF
@@ -235,18 +303,36 @@ export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
           {result.documentKind === "document" ? (
             <>
               <div className="font-semibold text-positive">
-                {result.issuer ? `Розпізнано: ${result.issuer}` : "Документ збережено"}
+                {result.issuer
+                  ? `Розпізнано: ${result.issuer}`
+                  : "Документ збережено"}
               </div>
               {result.subject && <div className="mt-0.5">{result.subject}</div>}
+              {result.summary && (
+                <p className="mt-2 text-muted">{result.summary}</p>
+              )}
+              {result.documentId && (
+                <Link
+                  className="btn-outline mt-3"
+                  href={"/documents/" + result.documentId}
+                >
+                  Відкрити документ
+                </Link>
+              )}
               {result.referenceNumber && (
-                <div className="mt-0.5 text-muted">№ {result.referenceNumber}</div>
+                <div className="mt-0.5 text-muted">
+                  № {result.referenceNumber}
+                </div>
               )}
               {result.deadline && (
-                <div className="mt-0.5 font-medium text-warn">Строк до {result.deadline}</div>
+                <div className="mt-0.5 font-medium text-warn">
+                  Строк до {result.deadline}
+                </div>
               )}
               {result.filing?.folder && (
                 <div className="mt-2 text-xs text-muted">
-                  Тека для iCloud: <strong className="text-ink">{result.filing.folder}</strong>
+                  Тека для iCloud:{" "}
+                  <strong className="text-ink">{result.filing.folder}</strong>
                 </div>
               )}
             </>
@@ -257,9 +343,10 @@ export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
               </div>
               <div className="mt-0.5 text-muted">
                 {result.totalCents
-                  ? `${(result.totalCents / 100).toFixed(2)} €`
+                  ? formatMoney(result.totalCents)
                   : "Суму не вдалося прочитати"}
-                {result.confidence === "low" && " · знімок нечіткий, перевірте уважно"}
+                {result.confidence === "low" &&
+                  " · знімок нечіткий, перевірте уважно"}
               </div>
             </>
           )}
@@ -269,12 +356,20 @@ export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
       {(pdfUrl || metaUrl) && (
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {pdfUrl && (
-            <a href={pdfUrl} download={`${downloadBase}.pdf`} className="btn-ghost">
+            <a
+              href={pdfUrl}
+              download={`${downloadBase}.pdf`}
+              className="btn-ghost"
+            >
               Зберегти PDF у Файли
             </a>
           )}
           {metaUrl && (
-            <a href={metaUrl} download={`${downloadBase}.txt`} className="btn-ghost">
+            <a
+              href={metaUrl}
+              download={`${downloadBase}.txt`}
+              className="btn-ghost"
+            >
               Зберегти метадані (.txt)
             </a>
           )}
@@ -283,9 +378,9 @@ export function Scanner({ fixedKind }: { fixedKind?: Kind } = {}) {
 
       {result?.filing?.folder && (
         <p className="mt-2 text-xs text-muted">
-          Складіть обидва файли в теку <strong>{result.filing.folder}</strong> усередині
-          вашої теки документів в iCloud Drive. Швидка команда робить це сама —
-          див. docs/SHORTCUT.md.
+          Складіть обидва файли в теку <strong>{result.filing.folder}</strong>{" "}
+          усередині вашої теки документів в iCloud Drive. Швидка команда робить
+          це сама — у налаштуваннях Швидкої команди.
         </p>
       )}
     </div>

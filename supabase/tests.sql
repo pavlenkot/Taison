@@ -946,3 +946,5 @@ begin
 end $$;
 
 reset role;
+
+\ir redesign-tests.sql

@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Icon } from "./Icon";
+import { Sheet } from "./Sheet";
 
 export function PageHeader({
   title,
@@ -10,25 +12,34 @@ export function PageHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <header className="mb-5 flex items-start justify-between gap-4">
+    <header className="page-header">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-        {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}
+        <h1>{title}</h1>
+        {subtitle && <p>{subtitle}</p>}
       </div>
       {action}
     </header>
   );
 }
-
 export function Empty({ icon, text }: { icon: string; text: string }) {
+  const names: Record<string, string> = {
+    "✓": "tasks",
+    "◈": "goals",
+    "⌷": "receipts",
+    "🧾": "receipts",
+    "📄": "documents",
+    "🔁": "payments",
+    "🗒️": "digest",
+  };
   return (
-    <div className="card flex flex-col items-center gap-2 py-10 text-center">
-      <span className="text-3xl opacity-60">{icon}</span>
-      <p className="text-sm text-muted">{text}</p>
+    <div className="card empty-state">
+      <span className="icon-circle">
+        <Icon name={names[icon] ?? icon} size={32} />
+      </span>
+      <p>{text}</p>
     </div>
   );
 }
-
 export function Stat({
   label,
   value,
@@ -40,19 +51,25 @@ export function Stat({
   tone?: "neutral" | "positive" | "negative";
   hint?: string;
 }) {
-  const colour =
-    tone === "positive" ? "text-positive" : tone === "negative" ? "text-negative" : "text-ink";
-
   return (
-    <div className="card">
-      <div className="text-xs font-medium uppercase tracking-wide text-muted">{label}</div>
-      <div className={`mt-1 text-xl font-bold tabular-nums ${colour}`}>{value}</div>
-      {hint && <div className="mt-0.5 text-xs text-muted">{hint}</div>}
+    <div className="card stat">
+      <div className="text-xs text-muted">{label}</div>
+      <div
+        className={
+          "stat-value " +
+          (tone === "positive"
+            ? "text-positive"
+            : tone === "negative"
+              ? "text-negative"
+              : "")
+        }
+      >
+        {value}
+      </div>
+      {hint && <p className="text-xs text-muted">{hint}</p>}
     </div>
   );
 }
-
-/** Розкривна форма додавання — на нативному <details>, без клієнтського JS. */
 export function AddPanel({
   label,
   children,
@@ -63,37 +80,42 @@ export function AddPanel({
   open?: boolean;
 }) {
   return (
-    <details open={open} className="card mb-4 [&[open]>summary]:mb-4">
-      <summary className="cursor-pointer list-none select-none text-sm font-semibold text-accent marker:content-none">
-        + {label}
-      </summary>
-      {children}
-    </details>
+    <div className="mb-5">
+      <Sheet title={label} open={open}>
+        {children}
+      </Sheet>
+    </div>
   );
 }
-
 export function SectionLink({
   href,
-  icon,
   title,
   description,
 }: {
   href: string;
-  icon: string;
+  icon?: string;
   title: string;
   description: string;
 }) {
+  const names: Record<string, string> = {
+    "/subscriptions": "payments",
+    "/tasks": "tasks",
+    "/goals": "goals",
+    "/analytics": "analytics",
+    "/documents": "documents",
+    "/receipts": "receipts",
+    "/digest": "digest",
+    "/categories": "categories",
+    "/archive": "archive",
+    "/settings": "settings",
+  };
   return (
-    <Link
-      href={href}
-      className="card flex items-center gap-3 transition hover:border-accent/40"
-    >
-      <span className="text-xl">{icon}</span>
-      <span className="min-w-0">
-        <span className="block font-semibold">{title}</span>
-        <span className="block truncate text-xs text-muted">{description}</span>
+    <Link href={href} className="menu-tile">
+      <span className="icon-circle">
+        <Icon name={names[href] ?? "more"} size={36} />
       </span>
-      <span className="ml-auto text-muted">›</span>
+      <span className="font-semibold">{title}</span>
+      <span className="menu-description">{description}</span>
     </Link>
   );
 }

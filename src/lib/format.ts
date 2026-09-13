@@ -23,7 +23,10 @@ export function formatMoney(cents: number, compact = false): string {
 }
 
 /** Знакова сума: витрата зі знаком «−», дохід із «+». */
-export function formatSigned(cents: number, kind: "expense" | "income"): string {
+export function formatSigned(
+  cents: number,
+  kind: "expense" | "income",
+): string {
   const sign = kind === "expense" ? "−" : "+";
   return `${sign}${formatMoney(Math.abs(cents))}`;
 }
@@ -65,13 +68,17 @@ export function formatMonth(iso: string): string {
 }
 
 /** «Сьогодні», «Завтра», «Прострочено на 3 дн.» — для строків оплати. */
-export function describeDueDate(iso: string): { label: string; tone: "ok" | "soon" | "late" } {
+export function describeDueDate(iso: string): {
+  label: string;
+  tone: "ok" | "soon" | "late";
+} {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const due = new Date(`${iso}T00:00:00`);
   const days = Math.round((due.getTime() - today.getTime()) / 86_400_000);
 
-  if (days < 0) return { label: `Прострочено на ${Math.abs(days)} дн.`, tone: "late" };
+  if (days < 0)
+    return { label: `Прострочено на ${Math.abs(days)} дн.`, tone: "late" };
   if (days === 0) return { label: "Сьогодні", tone: "late" };
   if (days === 1) return { label: "Завтра", tone: "soon" };
   if (days <= 7) return { label: `Через ${days} дн.`, tone: "soon" };
@@ -109,7 +116,12 @@ export function validDate(value: string | null | undefined): string | null {
  * Українське відмінювання після числівника: 1 день, 2 дні, 5 днів,
  * але 11–14 завжди беруть форму «багато» (11 днів, а не 11 день).
  */
-export function plural(count: number, one: string, few: string, many: string): string {
+export function plural(
+  count: number,
+  one: string,
+  few: string,
+  many: string,
+): string {
   const mod100 = count % 100;
   const mod10 = count % 10;
   if (mod100 >= 11 && mod100 <= 14) return many;
@@ -126,4 +138,23 @@ export function formatBytes(bytes: number): string {
   const mb = kb / 1024;
   if (mb < 1024) return `${mb.toFixed(1).replace(".", ",")} МБ`;
   return `${(mb / 1024).toFixed(2).replace(".", ",")} ГБ`;
+}
+
+/** Дата групи й часовий штамп використовують один пояс, зокрема біля півночі. */
+export function savedDateKey(timestamp: string): string {
+  return new Intl.DateTimeFormat(LOCALE, {
+    timeZone: "Europe/Berlin",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(new Date(timestamp));
+}
+export function formatSavedAt(timestamp: string): string {
+  const time = new Intl.DateTimeFormat(LOCALE, {
+    timeZone: "Europe/Berlin",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(timestamp));
+  return savedDateKey(timestamp) + " · " + time;
 }

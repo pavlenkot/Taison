@@ -1,5 +1,6 @@
 "use client";
 
+import { Icon } from "@/components/Icon";
 import Link from "next/link";
 import { useEffect } from "react";
 
@@ -23,17 +24,21 @@ export default function Error({
 
   return (
     <div className="mx-auto max-w-md py-12 text-center">
-      <div className="mb-3 text-4xl">😕</div>
-      <h1 className="text-xl font-bold">Тут щось зламалося</h1>
+      <div className="mb-4 flex justify-center text-negative">
+        <Icon name="warning" size={44} />
+      </div>
+      <h1 className="text-xl font-bold">Не вдалося відкрити сторінку</h1>
       <p className="mt-2 text-sm text-muted">
-        Дані не втрачені — не відкрилася лише ця сторінка. Спробуйте ще раз,
-        а якщо повториться, подивіться журнал у Vercel.
+        Дані не втрачені — не відкрилася лише ця сторінка. Спробуйте ще раз, або
+        поверніться на головну.
       </p>
 
       {error.digest && (
         <p className="mt-3 text-xs text-muted">
           Код помилки для журналу:{" "}
-          <code className="rounded bg-line/60 px-1.5 py-0.5 font-mono">{error.digest}</code>
+          <code className="rounded bg-line/60 px-1.5 py-0.5 font-mono">
+            {error.digest}
+          </code>
         </p>
       )}
 
