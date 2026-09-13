@@ -93,7 +93,7 @@ export default async function SettingsPage() {
                   ? awaiting + " файлів чекають на резервну копію"
                   : sync
                     ? "Усі " + sync.synced + " файлів синхронізовані"
-                    : "Копії чеків і документів зберігаються в теці Taison."}
+                    : "Копії чеків і документів зберігаються у вашій теці застосунку на Google Диску."}
               </p>
               <p className="text-xs text-muted mt-3">
                 {status.last_backup_at
@@ -133,7 +133,7 @@ export default async function SettingsPage() {
             <>
               <DriveConnect label="Підключити Google Диск" />
               <p className="text-xs text-muted mt-3">
-                Доступ лише до файлів, створених застосунком у теці Taison.
+                Доступ лише до файлів, створених застосунком у вашій теці на Google Диску.
               </p>
             </>
           ) : (

@@ -15,7 +15,7 @@ const DESTINATIONS = [
 export default function MorePage() {
   return (
     <>
-      <PageHeader title="Ще" subtitle="Taison" />
+      <PageHeader title="Ще" subtitle="Taskly" />
       <div className="menu-grid">
         {DESTINATIONS.map(([href, title, description]) => (
           <SectionLink

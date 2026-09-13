@@ -504,7 +504,7 @@ export async function disconnectDrive() {
   revalidatePath("/settings");
 }
 
-/** Створює теку «Taison» з підтеками, щоб вона з'явилася на Диску відразу. */
+/** Готує теку застосунку з підтеками, щоб вона з'явилася на Диску відразу. */
 export async function createDriveFolders() {
   const { userId } = await client();
   await prepareDriveTree(userId);
@@ -527,7 +527,7 @@ export async function backupToDrive() {
 
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
   const uploaded = await uploadBackupToDrive(userId, {
-    name: `taison-${stamp}.xlsx`,
+    name: `taskly-${stamp}.xlsx`,
     mimeType:
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     data: buffer,

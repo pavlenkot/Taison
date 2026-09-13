@@ -76,7 +76,7 @@ export async function runOpenRouter<S extends z.ZodType>(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "X-Title": "Taison",
+        "X-Title": "Taskly",
       },
       body: JSON.stringify({
         model,

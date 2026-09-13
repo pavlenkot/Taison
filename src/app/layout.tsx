@@ -12,11 +12,11 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Taison — особисті фінанси",
+  title: "Taskly — особисті фінанси",
   description:
     "Витрати, доходи, підписки, цілі та щоденні завдання в одному місці",
   manifest: "/manifest.json",
-  appleWebApp: { capable: true, statusBarStyle: "default", title: "Taison" },
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "Taskly" },
 };
 
 export const viewport: Viewport = {

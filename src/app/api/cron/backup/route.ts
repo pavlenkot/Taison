@@ -68,7 +68,7 @@ export async function GET(request: Request) {
 
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
       const uploaded = await uploadBackupToDrive(userId, {
-        name: `taison-${stamp}.xlsx`,
+        name: `taskly-${stamp}.xlsx`,
         mimeType: XLSX_MIME,
         data: buffer,
       });

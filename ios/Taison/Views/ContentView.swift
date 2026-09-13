@@ -66,7 +66,7 @@ struct ContentView: View {
                     }
                 }
             }
-            .navigationTitle("Taison")
+            .navigationTitle("Taskly")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {

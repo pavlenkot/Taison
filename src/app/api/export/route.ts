@@ -106,7 +106,7 @@ export async function GET(request: NextRequest) {
     source: SOURCE_LABELS[t.source] ?? t.source,
   }));
 
-  const filename = `taison_${from}_${to}`;
+  const filename = `taskly_${from}_${to}`;
 
   if (format === "csv") {
     const quote = (value: string) => `"${value.replace(/"/g, '""')}"`;
@@ -146,7 +146,7 @@ export async function GET(request: NextRequest) {
   }
 
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Taison";
+  workbook.creator = "Taskly";
   workbook.created = new Date();
 
   const sheet = workbook.addWorksheet("Операції", {

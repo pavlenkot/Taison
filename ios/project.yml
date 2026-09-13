@@ -18,7 +18,7 @@ targets:
     info:
       path: Taison/Info.plist
       properties:
-        CFBundleDisplayName: Taison
+        CFBundleDisplayName: Taskly
         CFBundleShortVersionString: "0.1"
         NSCameraUsageDescription: Камера потрібна, щоб сканувати чеки та документи
         UILaunchScreen: {}

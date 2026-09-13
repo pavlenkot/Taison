@@ -10,8 +10,8 @@
  * у якої в імені є хеш вмісту — вона не може застаріти.
  */
 
-const VERSION = "v1";
-const SHELL = `taison-shell-${VERSION}`;
+const VERSION = "v2";
+const SHELL = `taskly-shell-${VERSION}`;
 const OFFLINE_URL = "/offline.html";
 const PRECACHE = [OFFLINE_URL, "/manifest.json", "/icon-192.png"];
 
@@ -71,7 +71,7 @@ self.addEventListener("push", (event) => {
   }
 
   event.waitUntil(
-    self.registration.showNotification(payload.title || "Taison", {
+    self.registration.showNotification(payload.title || "Taskly", {
       body: payload.body || "",
       icon: "/icon-192.png",
       badge: "/icon-192.png",
