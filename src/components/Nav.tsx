@@ -34,7 +34,7 @@ export function Nav({ email }: { email: string }) {
       <aside className="sidebar">
         <div className="sidebar-inner">
           <div className="sidebar-brand" title={email}>
-            Taison
+            Taskly
           </div>
           <nav aria-label="Головне меню">
             {ITEMS.map((i, index) => (

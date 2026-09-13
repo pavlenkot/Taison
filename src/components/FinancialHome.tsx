@@ -74,7 +74,7 @@ export function FinancialHome({
       <header className="home-heading page-header">
         <div>
           <h1>Огляд</h1>
-          <p>Taison</p>
+          <p>Taskly</p>
         </div>
         <MonthPicker section={section} month={month} label={monthLabel} />
       </header>

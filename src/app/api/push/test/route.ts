@@ -19,7 +19,7 @@ export async function POST() {
 
   try {
     const result = await sendPushToUser(user.id, {
-      title: "Taison",
+      title: "Taskly",
       body: "Перевірка: нагадування працюють.",
       url: "/settings",
       tag: "taison-test",

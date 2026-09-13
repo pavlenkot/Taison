@@ -61,7 +61,7 @@ export default function LoginPage() {
     <main className="login-page">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <h1 className="font-bold tracking-tight">Taison</h1>
+          <h1 className="font-bold tracking-tight">Taskly</h1>
           <p className="mt-1.5 text-sm text-muted">
             Витрати, доходи, підписки, цілі та завдання
           </p>
@@ -106,7 +106,7 @@ export default function LoginPage() {
               </button>
               <p className="mt-2 text-center text-xs text-muted">
                 Заразом підключиться Google Диск: чеки й документи
-                складатимуться в теку «Taison» на вашому Диску
+                складатимуться у вашу теку застосунку на Диску
               </p>
             </div>
 

@@ -192,7 +192,7 @@ export async function buildBackupWorkbook(
   supabase: SupabaseClient,
 ): Promise<{ buffer: Buffer; rows: number }> {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Taison";
+  workbook.creator = "Taskly";
   workbook.created = new Date();
 
   let total = 0;
